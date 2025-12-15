@@ -1,0 +1,19 @@
+__stryx__:
+  schema: __main__:Config
+  created_at: '2025-12-15T11:48:00.580845+00:00'
+  overrides:
+  - optim.lr=1e-4
+  - train.steps=500
+exp_name: demo
+model_name: resnet50
+dataset: cifar10
+train:
+  batch_size: 128
+  steps: 500
+  seed: 0
+  out_dir: outputs
+optim:
+  kind: adamw
+  lr: 0.0001
+  weight_decay: 0.05
+sched: null

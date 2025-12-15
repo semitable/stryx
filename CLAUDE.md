@@ -4,93 +4,142 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Stryx is an interactive config builder for Pydantic schemas. It provides two primary modes:
+**Stryx is a typed configuration compiler for ML experiments** — an alternative to Hydra that doesn't suck.
 
-1. **Recipe-based CLI** - A Hydra-style CLI for creating, managing, and running configurations with override support
-2. **Interactive TUI** - A terminal UI for schema-aware config editing with fuzzy search, live validation, and type information
+### The Problem with Hydra
+- Runtime config resolution with magic interpolation
+- YAML authoring with obscure syntax
+- Difficult to debug, hard to version, non-reproducible
 
-The project enables ML researchers and engineers to define configurations as Pydantic schemas and easily create, modify, and manage configuration files through both programmatic and interactive interfaces.
+### The Stryx Approach
+1. **Define once** — Write your experiment config as a Pydantic schema in Python
+2. **Compile** — Use Hydra-style CLI overrides to materialize fully-resolved, validated YAML files ("recipes")
+3. **Consume** — Training code loads exactly ONE frozen config file — no runtime resolution, no magic
+
+This makes runs **reproducible**, **debuggable**, and **easy to inspect or version**.
+
+## Core API: The `@stryx.cli` Decorator
+
+```python
+import stryx
+from pydantic import BaseModel
+
+class Config(BaseModel):
+    lr: float = 1e-4
+    batch_size: int = 32
+
+@stryx.cli(schema=Config)
+def main(cfg: Config):
+    train(cfg)
+
+if __name__ == "__main__":
+    main()
+```
+
+That's it. The decorator provides the entire CLI.
+
+## CLI Commands
+
+```bash
+# Run with defaults
+python train.py
+
+# Run with overrides (ephemeral, not saved)
+python train.py lr=1e-3 batch_size=64
+
+# Save a recipe
+python train.py new my_exp lr=1e-3
+
+# Copy and modify a recipe
+python train.py new my_exp_v2 --from my_exp batch_size=128
+
+# Run from a saved recipe
+python train.py run my_exp
+
+# Run from recipe with additional overrides
+python train.py run my_exp lr=1e-4
+
+# Edit recipe interactively (TUI)
+python train.py edit my_exp
+
+# Load from explicit path
+python train.py --config path/to/config.yaml
+```
+
+## Config Hierarchy
+
+Precedence (lowest → highest):
+1. **Schema defaults** — `lr: float = 1e-4` in Pydantic model
+2. **Recipe file** — Values in the YAML recipe
+3. **CLI overrides** — `lr=1e-3` on command line
 
 ## Development Commands
 
-### Installation
+**IMPORTANT: Always prefix commands with `uv run`** — this ensures the correct virtual environment.
+
 ```bash
-# Install dependencies with uv (package manager)
+# Install
 uv sync
 
-# Install in development mode
-uv pip install -e .
+# Run example with defaults
+uv run python examples/train.py
+
+# Run with overrides
+uv run python examples/train.py lr=1e-4 train.steps=100
+
+# Create a recipe
+uv run python examples/train.py new my_exp exp_name=my_exp
+
+# Run from recipe
+uv run python examples/train.py run my_exp
+
+# Edit interactively
+uv run python examples/train.py edit my_exp
 ```
-
-### Running the CLI
-**IMPORTANT: Always prefix commands with `uv run`** - this ensures the correct virtual environment and dependencies are used.
-
-```bash
-# Using the installed CLI
-uv run stryx new examples/train.py:Config
-uv run stryx edit config/my_exp.yaml examples/train.py:Config
-uv run stryx show config/my_exp.yaml
-
-# Running examples directly
-cd examples
-uv run python train.py new my_exp exp_name=my_exp model_name=vit_b
-uv run python train.py show my_exp
-uv run python train.py run my_exp
-```
-
-### Package Management
-The project uses `uv` as its build backend and package manager (specified in pyproject.toml). Always use `uv` commands for dependency management rather than pip. All Python commands must be prefixed with `uv run` to use the correct environment.
 
 ## Architecture
 
-### Core Components
+### Core Module
 
-**src/stryx/config.py** - Core configuration management
-- `ConfigManager`: Manages Pydantic-based config data with validation and persistence
-- Handles: loading/saving YAML files, validation, data access (get_at/set_at)
-- Schema introspection: `get_field_info_for_path()`, `get_union_variants()`, `is_discriminator_field()`
-- Discriminated union support: detects discriminator fields dynamically (not hardcoded to "kind")
-- `_build_defaults_dict()`: Instantiates discriminated unions with first variant's defaults
-- No UI dependencies - pure data management
+**src/stryx/decorator.py** — The `@stryx.cli` decorator (heart of Stryx)
+- `cli()`: Decorator that transforms a function into a full CLI
+- `_dispatch()`: Routes CLI commands to handlers
+- `_cmd_new()`: Creates and saves recipes
+- `_cmd_edit()`: Launches TUI editor
+- `_build_config()`: Builds config from schema defaults + overrides
+- `_load_and_override()`: Loads recipe + applies overrides
+- `_parse_value()`: Smart type inference for CLI values
 
-**src/stryx/schema.py** - Pydantic schema introspection utilities
-- `extract_fields()`: Recursively walks Pydantic schemas to flatten nested structures
-- `FieldInfo`: Data class representing flattened config field for UI display
-- Handles nested BaseModels, Optional types, and discriminated unions
-- Discriminated unions: extracts fields from default variant (first member or from default_value)
+### Supporting Modules
 
-**src/stryx/recipes.py** - Recipe-based configuration system
-- `recipe_cli()`: Entry point that parses CLI arguments into a RecipeCmd object
-- `RecipeCmd`: Generic command object with methods for each operation (write/text/load)
-- `_apply_override_token()`: Hydra-style override parsing (key=value or a.b.c=value)
-- `_parse_value()`: Smart type inference for overrides (null/bool/numbers/JSON/strings)
-- Supports YAML and JSON config files
-- Adds metadata header `__stryx__` with schema info, build timestamp, and overrides
+**src/stryx/config.py** — Config data management
+- `ConfigManager`: Loads/saves YAML, validates against schema
+- Used by TUI for interactive editing
 
-**src/stryx/cli.py** - CLI entry point
-- `load_schema_from_path()`: Dynamic module loading from 'path/file.py:ClassName' format
-- Commands: new (create config), edit (modify existing), show (display config)
-- Imports and uses `launch_tui()` from tui.py for interactive editing
+**src/stryx/schema.py** — Pydantic schema introspection
+- `SchemaIntrospector`: Analyzes schema structure
+- `extract_fields()`: Flattens nested schemas
+- Helper functions: `is_union_type()`, `unwrap_optional()`, `is_discriminated_union()`
 
-**src/stryx/tui.py** - Interactive terminal UI (pure UI code)
-- `PydanticConfigTUI`: prompt_toolkit-based TUI with fuzzy search and live validation
-- `launch_tui()`: Entry point for interactive config editing
-- Uses `ConfigManager` for all data operations
-- Features: fuzzy search (rapidfuzz), live preview, boolean toggling, variant selection
-- Discriminator field detection: editing discriminator fields triggers variant selector
-- Validates on save and displays validation errors in status bar
+**src/stryx/tui.py** — Interactive terminal UI
+- `PydanticConfigTUI`: prompt_toolkit TUI with fuzzy search
+- `launch_tui()`: Entry point for TUI
+- Used by `edit` command
 
-### Schema Structure Requirements
+**src/stryx/utils.py** — Shared utilities
+- `read_yaml()`, `write_yaml()`: Atomic YAML I/O
+- `get_nested()`, `set_nested()`, `set_dotpath()`: Nested dict access
+- `path_to_str()`: Path formatting
 
-Pydantic schemas used with Stryx should follow these patterns:
+**src/stryx/cli.py** — Standalone `stryx` command (just shows usage info)
 
-1. **Nested configurations** - Use nested BaseModel classes for grouping related fields
-2. **Discriminated unions** - For variant types (e.g., optimizer choices), use Field(discriminator="kind")
-3. **Defaults** - Provide sensible defaults where possible; fields without defaults are marked required
-4. **Type hints** - Use proper Python type hints; supports Optional, Union, Literal, nested models
+## Schema Patterns
 
-Example pattern (see examples/train.py):
 ```python
+from typing import Literal, Union
+from pydantic import BaseModel, ConfigDict, Field
+
+# Discriminated unions for variant types
 class AdamWCfg(BaseModel):
     kind: Literal["adamw"] = "adamw"
     lr: float = 3e-4
@@ -99,32 +148,73 @@ class SGDCfg(BaseModel):
     kind: Literal["sgd"] = "sgd"
     lr: float = 1e-2
 
+OptimizerCfg = Union[AdamWCfg, SGDCfg]
+
+# Main config
 class Config(BaseModel):
-    optim: Union[AdamWCfg, SGDCfg] = Field(discriminator="kind")
+    model_config = ConfigDict(extra="forbid")  # Catch typos!
+
+    exp_name: str = "demo"
+    train: TrainCfg = Field(default_factory=TrainCfg)
+    optim: OptimizerCfg = Field(default_factory=AdamWCfg, discriminator="kind")
 ```
 
-### Override System
+Key points:
+- `Field(discriminator="kind")` for union types
+- `ConfigDict(extra="forbid")` catches typos in CLI overrides
+- `default_factory` for mutable defaults
+- Provide sensible defaults for all fields
 
-The recipe CLI supports Hydra-style overrides:
-- Simple: `key=value`
-- Nested: `a.b.c=value`
-- Smart parsing: `null`, `true`/`false`, numbers, JSON literals, quoted strings
-- Overrides are stored in the `__stryx__.overrides` field of compiled recipes
+## Override Syntax
 
-### TUI Integration
+```bash
+# Simple values
+lr=1e-4
+batch_size=32
+exp_name=my_experiment
 
-The TUI is fully integrated with the CLI and works as follows:
-1. User runs `stryx new` or `stryx edit` command
-2. CLI loads the Pydantic schema using `load_schema_from_path()`
-3. CLI calls `launch_tui()` with the schema and config path
-4. TUI initializes config with schema defaults (for new) or loads existing config (for edit)
-5. User edits fields interactively with live validation feedback
-6. On Ctrl+S, TUI validates against schema and saves if valid
-7. Validation errors are displayed in the status bar
+# Nested paths
+train.steps=1000
+optim.lr=1e-3
+optim.weight_decay=0.01
+
+# Special values
+enabled=true
+disabled=false
+optional_field=null
+
+# Quoted strings
+name="hello world"
+path='/path/with spaces'
+
+# JSON for complex values
+tags='["tag1", "tag2"]'
+```
+
+## Recipe Format
+
+Compiled recipes are frozen YAML with metadata:
+
+```yaml
+__stryx__:
+  schema: train:Config
+  created_at: '2024-01-15T10:30:00+00:00'
+  from: base_exp          # if copied from another recipe
+  overrides:              # CLI overrides used
+    - lr=1e-4
+    - batch_size=64
+exp_name: my_exp
+train:
+  batch_size: 64
+  steps: 1000
+optim:
+  kind: adamw
+  lr: 0.0001
+```
 
 ## Key Dependencies
 
-- **pydantic>=2** - Schema definition and validation
-- **prompt-toolkit>=3.0** - Terminal UI framework
-- **pyyaml>=6.0** - YAML parsing and serialization
-- **rapidfuzz>=3.0** - Fuzzy search for TUI field filtering
+- **pydantic>=2** — Schema definition and validation
+- **pyyaml>=6.0** — YAML serialization
+- **prompt-toolkit>=3.0** — Terminal UI
+- **rapidfuzz>=3.0** — Fuzzy search in TUI

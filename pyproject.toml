@@ -1,7 +1,7 @@
 [project]
 name = "stryx"
 version = "0.1.0"
-description = "Interactive config builder for Pydantic schemas"
+description = "Typed configuration compiler for ML experiments"
 readme = "README.md"
 authors = [
     { name = "Filippos Christianos", email = "filippos.christianos@gmail.com" }
@@ -16,6 +16,11 @@ dependencies = [
 
 [project.scripts]
 stryx = "stryx.cli:main"
+
+[project.optional-dependencies]
+examples = [
+    "trl>=0.26.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.6,<0.10.0"]
