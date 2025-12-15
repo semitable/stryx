@@ -12,11 +12,12 @@ The @stryx.cli decorator transforms a function into a full CLI:
 Commands:
     train.py                                 Run with schema defaults
     train.py lr=1e-4 batch=32                Run with overrides
-    train.py new <name> [overrides...]       Save recipe
-    train.py new <name> --from <src> [ov]    Copy + modify recipe
-    train.py run <name> [overrides...]       Run from recipe
+    train.py new [name] [overrides...]       Save recipe (auto-names if no name)
+    train.py new [name] --from <src> [ov]    Copy + modify recipe
+    train.py run <name|path> [overrides...]  Run from recipe or file path
     train.py edit <name>                     Edit recipe in TUI
-    train.py --config <path> [overrides...]  Run from explicit path
+    train.py show [name|path] [overrides...] Show config with sources
+    train.py list                            List all recipes
 """
 from __future__ import annotations
 
@@ -39,6 +40,14 @@ COMMANDS = frozenset({"new", "run", "edit", "show", "list"})
 
 # Sentinel for "value not found"
 _NOT_FOUND = object()
+
+
+def _is_path(arg: str) -> bool:
+    """Check if argument looks like a file path rather than a recipe name.
+
+    Returns True if arg contains path separators or has a YAML/JSON extension.
+    """
+    return "/" in arg or "\\" in arg or arg.endswith((".yaml", ".yml", ".json"))
 
 
 # =============================================================================
@@ -73,16 +82,6 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
     # --help / -h
     if first in ("--help", "-h"):
         return ParsedArgs(command="help")
-
-    # --config <path> [overrides...]
-    if first in ("--config", "-c"):
-        if len(argv) < 2:
-            raise SystemExit("--config requires a path")
-        return ParsedArgs(
-            command="run",
-            config_path=Path(argv[1]),
-            overrides=argv[2:],
-        )
 
     # list (no additional args)
     if first == "list":
@@ -120,13 +119,20 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
             overrides=overrides,
         )
 
-    # run <name> [overrides...]
+    # run <name|path> [overrides...]
     if first == "run":
         if len(argv) < 2:
-            raise SystemExit("'run' requires a recipe name")
+            raise SystemExit("'run' requires a recipe name or path")
+        target = argv[1]
+        if _is_path(target):
+            return ParsedArgs(
+                command="run",
+                config_path=Path(target),
+                overrides=argv[2:],
+            )
         return ParsedArgs(
             command="run",
-            recipe=argv[1],
+            recipe=target,
             overrides=argv[2:],
         )
 
@@ -136,7 +142,7 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
             raise SystemExit("'edit' requires a recipe name")
         return ParsedArgs(command="edit", recipe=argv[1])
 
-    # show [recipe] [--config path] [overrides...]
+    # show [name|path] [overrides...]
     if first == "show":
         recipe: str | None = None
         config_path: Path | None = None
@@ -145,17 +151,17 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
         i = 1
         while i < len(argv):
             arg = argv[i]
-            if arg in ("--config", "-c"):
-                if i + 1 >= len(argv):
-                    raise SystemExit("--config requires a path")
-                config_path = Path(argv[i + 1])
-                i += 2
-            elif "=" in arg:
+            if "=" in arg:
                 overrides.append(arg)
-                i += 1
+            elif recipe is None and config_path is None:
+                # First non-override arg is the target
+                if _is_path(arg):
+                    config_path = Path(arg)
+                else:
+                    recipe = arg
             else:
-                recipe = arg
-                i += 1
+                raise SystemExit(f"Unexpected argument: {arg}")
+            i += 1
 
         return ParsedArgs(
             command="show",
@@ -717,21 +723,22 @@ def _print_help(schema: type[BaseModel]) -> None:
 Usage:
   {prog}                                 Run with defaults
   {prog} <key>=<value> ...               Run with overrides
-  {prog} new <name> [overrides...]       Create recipe
-  {prog} new <name> --from <src> [ov]    Copy + modify recipe
-  {prog} run <name> [overrides...]       Run from recipe
+  {prog} new [name] [overrides...]       Create recipe (auto-names if no name)
+  {prog} new [name] --from <src> [ov]    Copy + modify recipe
+  {prog} run <name|path> [overrides...]  Run from recipe or file
   {prog} edit <name>                     Edit recipe (TUI)
-  {prog} show [name] [overrides...]      Show config with sources
+  {prog} show [name|path] [overrides...] Show config with sources
   {prog} list                            List all recipes
-  {prog} --config <path> [overrides...]  Run from file
 
 Examples:
   {prog} lr=1e-4 train.steps=1000
   {prog} new my_exp lr=1e-4
+  {prog} new lr=1e-4                     # Auto-generates exp_001, exp_002, ...
   {prog} new my_exp_v2 --from my_exp batch_size=64
   {prog} run my_exp
+  {prog} run ../other/config.yaml        # Path (contains / or ends in .yaml)
   {prog} edit my_exp
-  {prog} show my_exp lr=1e-5            # See where values come from
+  {prog} show my_exp lr=1e-5             # See where values come from
 
 Schema: {schema.__module__}:{schema.__name__}
 """)

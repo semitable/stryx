@@ -19,8 +19,9 @@ Usage:
     # Edit recipe interactively
     python train.py edit my_exp
 
-    # Load explicit config
-    python train.py --config configs/my_exp.yaml
+    # Run from explicit path (contains / or ends in .yaml)
+    python train.py run configs/my_exp.yaml
+    python train.py run ../other/config.yaml
 """
 
 from __future__ import annotations
@@ -44,7 +45,6 @@ class TrainCfg(BaseModel):
     batch_size: int = 128
     steps: int = 200
     seed: int = 0
-    out_dir: str = "outputs"
 
 
 class AdamWCfg(BaseModel):
@@ -105,8 +105,6 @@ class Config(BaseModel):
 
 def train(cfg: Config) -> None:
     """Simulated training loop."""
-    out_dir = Path(cfg.train.out_dir) / cfg.exp_name
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[{cfg.exp_name}] Starting training...")
     print(f"  Model: {cfg.model_name}")
@@ -120,10 +118,6 @@ def train(cfg: Config) -> None:
 
         if step % max(1, cfg.train.steps // 5) == 0:
             print(f"  step={step:04d} loss={loss:.6f}")
-
-    ckpt_path = out_dir / "checkpoint.pt"
-    ckpt_path.write_bytes(b"pretend model bytes")
-    print(f"\nSaved checkpoint: {ckpt_path}")
 
 
 # =============================================================================

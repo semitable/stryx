@@ -68,6 +68,10 @@ python train.py new my_exp_v2 --from my_exp batch_size=128
 # Run from a saved recipe
 python train.py run my_exp
 
+# Run from a file path (contains / or ends in .yaml)
+python train.py run ../other/config.yaml
+python train.py run /abs/path/to/config.yaml
+
 # Run from recipe with additional overrides
 python train.py run my_exp lr=1e-4
 
@@ -81,9 +85,6 @@ python train.py show my_exp lr=1e-5            # Show with overrides
 
 # List all recipes
 python train.py list
-
-# Load from explicit path
-python train.py --config path/to/config.yaml
 ```
 
 ## The `show` Command
