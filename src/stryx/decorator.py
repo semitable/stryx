@@ -23,9 +23,10 @@ from __future__ import annotations
 import functools
 import json
 import sys
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Literal, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -38,6 +39,138 @@ COMMANDS = frozenset({"new", "run", "edit", "show", "list"})
 
 # Sentinel for "value not found"
 _NOT_FOUND = object()
+
+
+# =============================================================================
+# CLI Argument Parsing
+# =============================================================================
+
+Command = Literal["run", "new", "edit", "show", "list", "help"]
+
+
+@dataclass
+class ParsedArgs:
+    """Parsed CLI arguments."""
+
+    command: Command
+    recipe: str | None = None
+    config_path: Path | None = None
+    from_recipe: str | None = None
+    overrides: list[str] = field(default_factory=list)
+
+
+def _parse_argv(argv: list[str]) -> ParsedArgs:
+    """Parse CLI arguments into structured form.
+
+    Handles all argument parsing in one place for consistency.
+    """
+    # No args → run with defaults
+    if not argv:
+        return ParsedArgs(command="run")
+
+    first = argv[0]
+
+    # --help / -h
+    if first in ("--help", "-h"):
+        return ParsedArgs(command="help")
+
+    # --config <path> [overrides...]
+    if first in ("--config", "-c"):
+        if len(argv) < 2:
+            raise SystemExit("--config requires a path")
+        return ParsedArgs(
+            command="run",
+            config_path=Path(argv[1]),
+            overrides=argv[2:],
+        )
+
+    # list (no additional args)
+    if first == "list":
+        return ParsedArgs(command="list")
+
+    # new <name> [--from <src>] [overrides...]
+    if first == "new":
+        if len(argv) < 2:
+            raise SystemExit("'new' requires a recipe name")
+
+        name = argv[1]
+        if name in COMMANDS:
+            raise SystemExit(f"Cannot use reserved name '{name}' for recipe")
+
+        from_recipe: str | None = None
+        overrides: list[str] = []
+
+        i = 2
+        while i < len(argv):
+            if argv[i] == "--from":
+                if i + 1 >= len(argv):
+                    raise SystemExit("--from requires a source recipe name")
+                from_recipe = argv[i + 1]
+                i += 2
+            else:
+                overrides.append(argv[i])
+                i += 1
+
+        return ParsedArgs(
+            command="new",
+            recipe=name,
+            from_recipe=from_recipe,
+            overrides=overrides,
+        )
+
+    # run <name> [overrides...]
+    if first == "run":
+        if len(argv) < 2:
+            raise SystemExit("'run' requires a recipe name")
+        return ParsedArgs(
+            command="run",
+            recipe=argv[1],
+            overrides=argv[2:],
+        )
+
+    # edit <name>
+    if first == "edit":
+        if len(argv) < 2:
+            raise SystemExit("'edit' requires a recipe name")
+        return ParsedArgs(command="edit", recipe=argv[1])
+
+    # show [recipe] [--config path] [overrides...]
+    if first == "show":
+        recipe: str | None = None
+        config_path: Path | None = None
+        overrides = []
+
+        i = 1
+        while i < len(argv):
+            arg = argv[i]
+            if arg in ("--config", "-c"):
+                if i + 1 >= len(argv):
+                    raise SystemExit("--config requires a path")
+                config_path = Path(argv[i + 1])
+                i += 2
+            elif "=" in arg:
+                overrides.append(arg)
+                i += 1
+            else:
+                recipe = arg
+                i += 1
+
+        return ParsedArgs(
+            command="show",
+            recipe=recipe,
+            config_path=config_path,
+            overrides=overrides,
+        )
+
+    # Default: treat all args as overrides → run
+    if "=" not in first:
+        raise SystemExit(
+            f"Unknown command '{first}'.\n"
+            f"Did you mean: run {first}  (to run a recipe)\n"
+            f"Or use overrides like: {first}=value"
+        )
+
+    return ParsedArgs(command="run", overrides=argv)
 
 
 def cli(
@@ -114,62 +247,33 @@ def _dispatch(
     argv: list[str],
 ) -> Any:
     """Parse argv and dispatch to appropriate handler."""
+    args = _parse_argv(argv)
 
-    # No args → run with defaults
-    if not argv:
-        cfg = _build_config(schema, [])
-        return func(cfg)
-
-    first = argv[0]
-
-    # --help / -h
-    if first in ("--help", "-h"):
+    if args.command == "help":
         _print_help(schema)
         return
 
-    # --config <path> [overrides...]
-    if first in ("--config", "-c"):
-        if len(argv) < 2:
-            raise SystemExit("--config requires a path")
-        cfg = _load_and_override(schema, Path(argv[1]), argv[2:])
-        return func(cfg)
-
-    # new <name> [--from <src>] [overrides...]
-    if first == "new":
-        return _cmd_new(schema, recipes_dir, argv[1:])
-
-    # run <name> [overrides...]
-    if first == "run":
-        if len(argv) < 2:
-            raise SystemExit("'run' requires a recipe name")
-        recipe_path = recipes_dir / f"{argv[1]}.yaml"
-        cfg = _load_and_override(schema, recipe_path, argv[2:])
-        return func(cfg)
-
-    # edit <name>
-    if first == "edit":
-        if len(argv) < 2:
-            raise SystemExit("'edit' requires a recipe name")
-        return _cmd_edit(schema, recipes_dir, argv[1])
-
-    # show [recipe] [--config path] [overrides...]
-    if first == "show":
-        return _cmd_show(schema, recipes_dir, argv[1:])
-
-    # list
-    if first == "list":
+    if args.command == "list":
         return _cmd_list(recipes_dir)
 
-    # Default: treat all args as overrides → run
-    # Check that args look like overrides (contain '=')
-    if "=" not in first:
-        raise SystemExit(
-            f"Unknown command '{first}'.\n"
-            f"Did you mean: run {first}  (to run a recipe)\n"
-            f"Or use overrides like: {first}=value"
-        )
+    if args.command == "new":
+        return _cmd_new(schema, recipes_dir, args)
 
-    cfg = _build_config(schema, argv)
+    if args.command == "edit":
+        return _cmd_edit(schema, recipes_dir, args.recipe)
+
+    if args.command == "show":
+        return _cmd_show(schema, recipes_dir, args)
+
+    # command == "run"
+    if args.config_path:
+        cfg = _load_and_override(schema, args.config_path, args.overrides)
+    elif args.recipe:
+        recipe_path = recipes_dir / f"{args.recipe}.yaml"
+        cfg = _load_and_override(schema, recipe_path, args.overrides)
+    else:
+        cfg = _build_config(schema, args.overrides)
+
     return func(cfg)
 
 
@@ -177,44 +281,23 @@ def _dispatch(
 # Command Handlers
 # =============================================================================
 
-def _cmd_new(schema: type[T], recipes_dir: Path, argv: list[str]) -> Path:
+def _cmd_new(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
     """Handle: new <name> [--from <src>] [overrides...]"""
-    if not argv:
-        raise SystemExit("'new' requires a recipe name")
-
-    name = argv[0]
-    rest = argv[1:]
-
-    # Check for reserved names
-    if name in COMMANDS:
-        raise SystemExit(f"Cannot use reserved name '{name}' for recipe")
-
-    # Parse --from flag
-    from_recipe: Path | None = None
-    overrides: list[str] = []
-
-    i = 0
-    while i < len(rest):
-        if rest[i] == "--from":
-            if i + 1 >= len(rest):
-                raise SystemExit("--from requires a source recipe name")
-            from_recipe = recipes_dir / f"{rest[i + 1]}.yaml"
-            i += 2
-        else:
-            overrides.append(rest[i])
-            i += 1
+    assert args.recipe is not None
 
     # Build config
-    if from_recipe:
-        if not from_recipe.exists():
-            raise SystemExit(f"Source recipe not found: {from_recipe}")
-        cfg = _load_and_override(schema, from_recipe, overrides)
+    from_path: Path | None = None
+    if args.from_recipe:
+        from_path = recipes_dir / f"{args.from_recipe}.yaml"
+        if not from_path.exists():
+            raise SystemExit(f"Source recipe not found: {from_path}")
+        cfg = _load_and_override(schema, from_path, args.overrides)
     else:
-        cfg = _build_config(schema, overrides)
+        cfg = _build_config(schema, args.overrides)
 
     # Write recipe
     recipes_dir.mkdir(parents=True, exist_ok=True)
-    out_path = recipes_dir / f"{name}.yaml"
+    out_path = recipes_dir / f"{args.recipe}.yaml"
 
     payload: dict[str, Any] = {
         "__stryx__": {
@@ -222,10 +305,10 @@ def _cmd_new(schema: type[T], recipes_dir: Path, argv: list[str]) -> Path:
             "created_at": datetime.now(tz=timezone.utc).isoformat(),
         }
     }
-    if from_recipe:
-        payload["__stryx__"]["from"] = from_recipe.stem
-    if overrides:
-        payload["__stryx__"]["overrides"] = overrides
+    if args.from_recipe:
+        payload["__stryx__"]["from"] = args.from_recipe
+    if args.overrides:
+        payload["__stryx__"]["overrides"] = args.overrides
 
     payload.update(cfg.model_dump(mode="python"))
 
@@ -251,33 +334,12 @@ def _cmd_edit(schema: type[T], recipes_dir: Path, name: str) -> None:
     tui.run()
 
 
-def _cmd_show(schema: type[T], recipes_dir: Path, argv: list[str]) -> None:
+def _cmd_show(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> None:
     """Handle: show [recipe] [--config path] [overrides...]
 
     Pretty-prints the config with source annotations showing where each value
     comes from: (default), (recipe), or (override ← previous_value).
     """
-    # Parse arguments
-    recipe_path: Path | None = None
-    config_path: Path | None = None
-    overrides: list[str] = []
-
-    i = 0
-    while i < len(argv):
-        arg = argv[i]
-        if arg in ("--config", "-c"):
-            if i + 1 >= len(argv):
-                raise SystemExit("--config requires a path")
-            config_path = Path(argv[i + 1])
-            i += 2
-        elif "=" in arg:
-            overrides.append(arg)
-            i += 1
-        else:
-            # Assume it's a recipe name
-            recipe_path = recipes_dir / f"{arg}.yaml"
-            i += 1
-
     # Get schema defaults
     try:
         defaults_instance = schema()
@@ -286,7 +348,8 @@ def _cmd_show(schema: type[T], recipes_dir: Path, argv: list[str]) -> None:
         raise SystemExit(f"Schema has required fields without defaults:\n{e}")
 
     # Determine source file
-    source_file: Path | None = config_path or recipe_path
+    recipe_path = recipes_dir / f"{args.recipe}.yaml" if args.recipe else None
+    source_file: Path | None = args.config_path or recipe_path
     source_name = "defaults"
     recipe_data: dict[str, Any] | None = None
 
@@ -307,7 +370,7 @@ def _cmd_show(schema: type[T], recipes_dir: Path, argv: list[str]) -> None:
 
     # Track override paths and their previous values
     override_info: dict[str, Any] = {}  # path -> previous value
-    for tok in overrides:
+    for tok in args.overrides:
         key, _ = tok.split("=", 1)
         key = key.strip()
         # Get previous value before override
@@ -323,8 +386,8 @@ def _cmd_show(schema: type[T], recipes_dir: Path, argv: list[str]) -> None:
     header_parts = ["Config"]
     if source_name != "defaults":
         header_parts.append(f"recipe: {source_name}")
-    if overrides:
-        header_parts.append(f"{len(overrides)} override{'s' if len(overrides) > 1 else ''}")
+    if args.overrides:
+        header_parts.append(f"{len(args.overrides)} override{'s' if len(args.overrides) > 1 else ''}")
     if len(header_parts) > 1:
         print(f"{header_parts[0]} ({', '.join(header_parts[1:])})")
     else:
