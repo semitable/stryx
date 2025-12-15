@@ -88,19 +88,21 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
     if first == "list":
         return ParsedArgs(command="list")
 
-    # new <name> [--from <src>] [overrides...]
+    # new [name] [--from <src>] [overrides...]
+    # Name is optional - if first arg contains '=', it's an override and we auto-generate
     if first == "new":
-        if len(argv) < 2:
-            raise SystemExit("'new' requires a recipe name")
-
-        name = argv[1]
-        if name in COMMANDS:
-            raise SystemExit(f"Cannot use reserved name '{name}' for recipe")
-
+        name: str | None = None
         from_recipe: str | None = None
         overrides: list[str] = []
 
-        i = 2
+        i = 1
+        # Check if first arg is a name or an override
+        if i < len(argv) and "=" not in argv[i] and argv[i] != "--from":
+            name = argv[i]
+            if name in COMMANDS:
+                raise SystemExit(f"Cannot use reserved name '{name}' for recipe")
+            i += 1
+
         while i < len(argv):
             if argv[i] == "--from":
                 if i + 1 >= len(argv):
@@ -113,7 +115,7 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
 
         return ParsedArgs(
             command="new",
-            recipe=name,
+            recipe=name,  # None means auto-generate
             from_recipe=from_recipe,
             overrides=overrides,
         )
@@ -282,10 +284,14 @@ def _dispatch(
 # =============================================================================
 
 def _cmd_new(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
-    """Handle: new <name> [--from <src>] [overrides...]"""
-    assert args.recipe is not None
+    """Handle: new [name] [--from <src>] [overrides...]
 
-    # Build config
+    If name is not provided, generates sequential name (exp_001, exp_002, etc.)
+    with file locking to prevent race conditions.
+    """
+    from filelock import FileLock
+
+    # Build config first (before locking, since this doesn't need the lock)
     from_path: Path | None = None
     if args.from_recipe:
         from_path = recipes_dir / f"{args.from_recipe}.yaml"
@@ -295,10 +301,7 @@ def _cmd_new(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
     else:
         cfg = _build_config(schema, args.overrides)
 
-    # Write recipe
-    recipes_dir.mkdir(parents=True, exist_ok=True)
-    out_path = recipes_dir / f"{args.recipe}.yaml"
-
+    # Prepare payload
     payload: dict[str, Any] = {
         "__stryx__": {
             "schema": f"{schema.__module__}:{schema.__name__}",
@@ -309,12 +312,46 @@ def _cmd_new(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
         payload["__stryx__"]["from"] = args.from_recipe
     if args.overrides:
         payload["__stryx__"]["overrides"] = args.overrides
-
     payload.update(cfg.model_dump(mode="python"))
 
-    write_yaml(out_path, payload)
+    # Create directory
+    recipes_dir.mkdir(parents=True, exist_ok=True)
+
+    # If name provided, just write directly
+    if args.recipe:
+        out_path = recipes_dir / f"{args.recipe}.yaml"
+        write_yaml(out_path, payload)
+        print(f"Recipe saved: {out_path}")
+        return out_path
+
+    # Auto-generate sequential name with locking
+    lock_path = recipes_dir / ".stryx.lock"
+    with FileLock(lock_path):
+        name = _next_sequential_name(recipes_dir)
+        out_path = recipes_dir / f"{name}.yaml"
+        write_yaml(out_path, payload)
+
     print(f"Recipe saved: {out_path}")
     return out_path
+
+
+def _next_sequential_name(recipes_dir: Path) -> str:
+    """Find next sequential experiment name (exp_001, exp_002, etc.).
+
+    Must be called while holding the directory lock.
+    """
+    existing = list(recipes_dir.glob("exp_*.yaml"))
+    numbers = []
+    for p in existing:
+        try:
+            # exp_001.yaml → 1
+            num = int(p.stem.split("_")[1])
+            numbers.append(num)
+        except (IndexError, ValueError):
+            continue
+
+    next_num = max(numbers, default=0) + 1
+    return f"exp_{next_num:03d}"
 
 
 def _cmd_edit(schema: type[T], recipes_dir: Path, name: str) -> None:

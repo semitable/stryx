@@ -59,6 +59,9 @@ python train.py lr=1e-3 batch_size=64
 # Save a recipe
 python train.py new my_exp lr=1e-3
 
+# Auto-generate recipe name (exp_001, exp_002, etc.)
+python train.py new lr=1e-3
+
 # Copy and modify a recipe
 python train.py new my_exp_v2 --from my_exp batch_size=128
 
@@ -225,7 +228,7 @@ def test_recipe_workflow(self, tmp_path):
 - `ParsedArgs`: Dataclass holding parsed CLI arguments
 - `_parse_argv()`: Centralized argument parsing
 - `_dispatch()`: Routes commands to handlers
-- `_cmd_new()`: Creates and saves recipes
+- `_cmd_new()`: Creates and saves recipes (auto-names with file locking)
 - `_cmd_edit()`: Launches TUI editor
 - `_cmd_show()`: Shows config with source annotations
 - `_cmd_list()`: Lists all recipes
@@ -352,3 +355,4 @@ optim:
 - **pyyaml>=6.0** — YAML serialization
 - **prompt-toolkit>=3.0** — Terminal UI
 - **rapidfuzz>=3.0** — Fuzzy search in TUI
+- **filelock>=3.0** — Race-safe sequential recipe naming

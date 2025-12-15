@@ -84,6 +84,24 @@ class TestTrainExample:
         assert recipe["train"]["batch_size"] == 64  # new override
         assert recipe["__stryx__"].get("from") == "base"  # tracks lineage
 
+    def test_auto_naming(self, tmp_path):
+        """new without name auto-generates sequential names."""
+        # Create first auto-named recipe
+        result = run("train.py", ["new", "train.steps=10"], cwd=tmp_path)
+        assert result.returncode == 0
+        assert (tmp_path / "configs" / "exp_001.yaml").exists()
+
+        # Create second - should be exp_002
+        result = run("train.py", ["new", "train.steps=20"], cwd=tmp_path)
+        assert result.returncode == 0
+        assert (tmp_path / "configs" / "exp_002.yaml").exists()
+
+        # Verify values are correct
+        recipe1 = load_recipe(tmp_path / "configs" / "exp_001.yaml")
+        recipe2 = load_recipe(tmp_path / "configs" / "exp_002.yaml")
+        assert recipe1["train"]["steps"] == 10
+        assert recipe2["train"]["steps"] == 20
+
 
 class TestDataclassExample:
     """examples/dataclass_config.py works."""
