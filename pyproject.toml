@@ -21,6 +21,9 @@ stryx = "stryx.cli:main"
 examples = [
     "trl>=0.26.1",
 ]
+dev = [
+    "pytest>=8.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.6,<0.10.0"]

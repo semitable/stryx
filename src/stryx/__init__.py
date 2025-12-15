@@ -40,11 +40,12 @@ __version__ = "0.1.0"
 # =============================================================================
 
 
-def from_dataclass(
-    dc: type,
-    *,
-    _cache: dict[type, type[BaseModel]] | None = None,
-) -> type[BaseModel]:
+# Module-level cache for dataclass conversions
+# Ensures consistent types when the same dataclass is converted multiple times
+_DATACLASS_CACHE: dict[type, type[BaseModel]] = {}
+
+
+def from_dataclass(dc: type) -> type[BaseModel]:
     """Convert a dataclass to a Pydantic model.
 
     This allows using plain Python dataclasses with Stryx while getting
@@ -76,12 +77,9 @@ def from_dataclass(
     if not dataclasses.is_dataclass(dc):
         raise TypeError(f"Expected a dataclass, got {type(dc).__name__}")
 
-    # Cache to handle recursive structures
-    if _cache is None:
-        _cache = {}
-
-    if dc in _cache:
-        return _cache[dc]
+    # Return cached model if already converted
+    if dc in _DATACLASS_CACHE:
+        return _DATACLASS_CACHE[dc]
 
     # Get type hints (resolves forward references)
     try:
@@ -96,14 +94,14 @@ def from_dataclass(
         field_type = hints.get(f.name, Any)
 
         # Convert nested dataclasses in the type
-        field_type = _convert_type(field_type, _cache)
+        field_type = _convert_type(field_type)
 
         # Handle default values
         if f.default is not dataclasses.MISSING:
             default = f.default
             # If default is a dataclass instance, convert it
             if dataclasses.is_dataclass(default) and not isinstance(default, type):
-                converted_type = _convert_type(type(default), _cache)
+                converted_type = _convert_type(type(default))
                 default = converted_type(**dataclasses.asdict(default))
             field_definitions[f.name] = (field_type, default)
         elif f.default_factory is not dataclasses.MISSING:
@@ -112,7 +110,7 @@ def from_dataclass(
             original_type = hints.get(f.name)
 
             if dataclasses.is_dataclass(original_type):
-                converted = _convert_type(original_type, _cache)
+                converted = _convert_type(original_type)
 
                 def make_factory(conv=converted, fact=factory):
                     def wrapped():
@@ -142,22 +140,19 @@ def from_dataclass(
     # Store reference to original dataclass
     model._stryx_source_dataclass = dc  # type: ignore
 
-    # Cache before returning (handles recursive refs)
-    _cache[dc] = model
+    # Cache for future calls
+    _DATACLASS_CACHE[dc] = model
 
     return model
 
 
-def _convert_type(
-    field_type: Any,
-    cache: dict[type, type[BaseModel]],
-) -> Any:
+def _convert_type(field_type: Any) -> Any:
     """Recursively convert dataclass types within a type annotation."""
     import types
 
     # Direct dataclass
     if dataclasses.is_dataclass(field_type) and isinstance(field_type, type):
-        return from_dataclass(field_type, _cache=cache)
+        return from_dataclass(field_type)
 
     origin = get_origin(field_type)
     args = get_args(field_type)
@@ -167,18 +162,18 @@ def _convert_type(
 
     # Handle Union[X, Y, ...] (typing.Union)
     if origin is Union:
-        converted_args = tuple(_convert_type(arg, cache) for arg in args)
+        converted_args = tuple(_convert_type(arg) for arg in args)
         return Union[converted_args]  # type: ignore
 
     # Handle X | Y (types.UnionType in Python 3.10+)
     if isinstance(field_type, types.UnionType):
-        converted_args = tuple(_convert_type(arg, cache) for arg in args)
+        converted_args = tuple(_convert_type(arg) for arg in args)
         # Rebuild using Union since UnionType isn't subscriptable
         return Union[converted_args]  # type: ignore
 
     # Handle List[X], Dict[K, V], etc.
     if args:
-        converted_args = tuple(_convert_type(arg, cache) for arg in args)
+        converted_args = tuple(_convert_type(arg) for arg in args)
         try:
             return origin[converted_args]  # type: ignore
         except TypeError:
