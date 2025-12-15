@@ -183,6 +183,39 @@ uv run --extra examples python examples/sft.py
 uv run --extra dev pytest tests/ -v
 ```
 
+## Testing Philosophy
+
+**Tests should help, not create friction.**
+
+### Do:
+- Check exit codes and that output is non-empty
+- Verify files exist and are valid (parseable YAML with expected keys)
+- Test that overrides actually change values in the output
+- Test public API (`@stryx.cli`, `from_dataclass`)
+
+### Don't:
+- Match exact strings in output (`assert "Usage:" in stdout`)
+- Test internal implementation details (`_parse_argv`, `_parse_value`)
+- Write tests that break when you change help text or formatting
+
+### Test structure:
+```
+tests/
+├── test_cli.py                    # Public API tests
+└── integration/
+    └── test_examples.py           # Examples run and produce valid output
+```
+
+### Example - good test:
+```python
+def test_recipe_workflow(self, tmp_path):
+    run("train.py", ["new", "test", "train.steps=42"], cwd=tmp_path)
+
+    recipe = yaml.safe_load((tmp_path / "configs" / "test.yaml").read_text())
+    assert recipe["train"]["steps"] == 42  # override applied
+    assert "__stryx__" in recipe  # has metadata
+```
+
 ## Architecture
 
 ### Core Module

@@ -1,16 +1,15 @@
-"""Integration tests verifying examples run without errors.
+"""Integration tests verifying examples work correctly.
 
-These tests just check that the examples work - they don't verify
-specific output content, which would be brittle and annoying to maintain.
+These tests check that examples run and produce valid output.
+We verify structure and key values, but avoid brittle string matching.
 """
 from __future__ import annotations
 
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-import pytest
+import yaml
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
 
@@ -23,44 +22,86 @@ def run(script: str, args: list[str] = None, cwd: str = None) -> subprocess.Comp
     return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=30)
 
 
+def load_recipe(path: Path) -> dict:
+    """Load and parse a recipe YAML file."""
+    return yaml.safe_load(path.read_text())
+
+
 class TestTrainExample:
     """examples/train.py works."""
 
     def test_runs(self, tmp_path):
-        assert run("train.py", cwd=tmp_path).returncode == 0
+        result = run("train.py", cwd=tmp_path)
+        assert result.returncode == 0
+        assert result.stdout  # produces output
 
     def test_with_overrides(self, tmp_path):
-        assert run("train.py", ["train.steps=5"], cwd=tmp_path).returncode == 0
+        result = run("train.py", ["train.steps=5"], cwd=tmp_path)
+        assert result.returncode == 0
 
     def test_help(self):
-        assert run("train.py", ["--help"]).returncode == 0
+        result = run("train.py", ["--help"])
+        assert result.returncode == 0
+        assert result.stdout  # help text is printed
 
     def test_show(self, tmp_path):
-        assert run("train.py", ["show"], cwd=tmp_path).returncode == 0
+        result = run("train.py", ["show"], cwd=tmp_path)
+        assert result.returncode == 0
+        assert result.stdout
 
     def test_recipe_workflow(self, tmp_path):
-        """new -> list -> run -> show works."""
-        assert run("train.py", ["new", "test"], cwd=tmp_path).returncode == 0
-        assert (tmp_path / "configs" / "test.yaml").exists()
+        """new -> list -> run -> show works and produces valid config."""
+        # Create recipe with custom values
+        result = run("train.py", ["new", "test", "train.steps=42"], cwd=tmp_path)
+        assert result.returncode == 0
 
+        # Recipe file exists and is valid YAML with expected structure
+        recipe_path = tmp_path / "configs" / "test.yaml"
+        assert recipe_path.exists()
+
+        recipe = load_recipe(recipe_path)
+        assert "__stryx__" in recipe  # has metadata
+        assert recipe["train"]["steps"] == 42  # override was applied
+        assert "exp_name" in recipe  # has expected fields
+
+        # Can list, run, and show the recipe
         assert run("train.py", ["list"], cwd=tmp_path).returncode == 0
         assert run("train.py", ["run", "test"], cwd=tmp_path).returncode == 0
         assert run("train.py", ["show", "test"], cwd=tmp_path).returncode == 0
 
     def test_new_from(self, tmp_path):
-        """new --from works."""
-        run("train.py", ["new", "base"], cwd=tmp_path)
-        assert run("train.py", ["new", "derived", "--from", "base"], cwd=tmp_path).returncode == 0
+        """new --from copies values from base recipe."""
+        # Create base with custom value
+        run("train.py", ["new", "base", "train.steps=100"], cwd=tmp_path)
+
+        # Derive from it with another override
+        result = run("train.py", ["new", "derived", "--from", "base", "train.batch_size=64"], cwd=tmp_path)
+        assert result.returncode == 0
+
+        # Derived recipe has both values
+        recipe = load_recipe(tmp_path / "configs" / "derived.yaml")
+        assert recipe["train"]["steps"] == 100  # from base
+        assert recipe["train"]["batch_size"] == 64  # new override
+        assert recipe["__stryx__"].get("from") == "base"  # tracks lineage
 
 
 class TestDataclassExample:
     """examples/dataclass_config.py works."""
 
     def test_runs(self, tmp_path):
-        assert run("dataclass_config.py", cwd=tmp_path).returncode == 0
+        result = run("dataclass_config.py", cwd=tmp_path)
+        assert result.returncode == 0
+        assert result.stdout
 
     def test_with_overrides(self, tmp_path):
-        assert run("dataclass_config.py", ["optimizer.lr=1e-5"], cwd=tmp_path).returncode == 0
+        result = run("dataclass_config.py", ["optimizer.lr=1e-5"], cwd=tmp_path)
+        assert result.returncode == 0
 
-    def test_show(self, tmp_path):
-        assert run("dataclass_config.py", ["show"], cwd=tmp_path).returncode == 0
+    def test_recipe_has_nested_structure(self, tmp_path):
+        """Dataclass config produces valid nested YAML."""
+        run("dataclass_config.py", ["new", "dc_test", "train.epochs=99"], cwd=tmp_path)
+
+        recipe = load_recipe(tmp_path / "configs" / "dc_test.yaml")
+        assert recipe["train"]["epochs"] == 99
+        assert "optimizer" in recipe  # nested dataclass converted
+        assert "lr" in recipe["optimizer"]
