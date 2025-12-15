@@ -20,7 +20,7 @@ Usage:
     python train.py edit my_exp
 
     # Load explicit config
-    python train.py --config conf/recipes/my_exp.yaml
+    python train.py --config configs/my_exp.yaml
 """
 
 from __future__ import annotations

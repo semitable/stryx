@@ -34,7 +34,7 @@ from .utils import read_yaml, write_yaml, set_dotpath
 T = TypeVar("T", bound=BaseModel)
 
 # Reserved command names
-COMMANDS = frozenset({"new", "run", "edit", "show"})
+COMMANDS = frozenset({"new", "run", "edit", "show", "list"})
 
 # Sentinel for "value not found"
 _NOT_FOUND = object()
@@ -42,13 +42,13 @@ _NOT_FOUND = object()
 
 def cli(
     schema: type[T] | None = None,
-    recipes_dir: str | Path = "conf/recipes",
+    recipes_dir: str | Path = "configs",
 ) -> Callable[[Callable[[T], Any]], Callable[[], Any]]:
     """Decorator that adds Stryx CLI to a function.
 
     Args:
         schema: Pydantic model class for config. If None, inferred from type hints.
-        recipes_dir: Directory for storing recipes (default: conf/recipes)
+        recipes_dir: Directory for storing recipes (default: configs)
 
     Example:
         @stryx.cli(schema=Config)
@@ -155,6 +155,10 @@ def _dispatch(
     # show [recipe] [--config path] [overrides...]
     if first == "show":
         return _cmd_show(schema, recipes_dir, argv[1:])
+
+    # list
+    if first == "list":
+        return _cmd_list(recipes_dir)
 
     # Default: treat all args as overrides → run
     # Check that args look like overrides (contain '=')
@@ -336,6 +340,54 @@ def _cmd_show(schema: type[T], recipes_dir: Path, argv: list[str]) -> None:
         prefix="",
         indent=0,
     )
+
+
+def _cmd_list(recipes_dir: Path) -> None:
+    """Handle: list - show all recipes in the recipes directory."""
+    if not recipes_dir.exists():
+        print(f"No recipes directory: {recipes_dir}")
+        return
+
+    recipes = sorted(recipes_dir.glob("*.yaml")) + sorted(recipes_dir.glob("*.yml"))
+
+    if not recipes:
+        print(f"No recipes in {recipes_dir}/")
+        return
+
+    print(f"Recipes ({recipes_dir}/):")
+    print("-" * 40)
+
+    for recipe_path in recipes:
+        name = recipe_path.stem
+
+        # Try to get metadata
+        try:
+            data = read_yaml(recipe_path)
+            meta = data.get("__stryx__", {}) if isinstance(data, dict) else {}
+            created = meta.get("created_at", "")
+            if created:
+                # Parse and format date
+                from datetime import datetime
+                try:
+                    dt = datetime.fromisoformat(created)
+                    date_str = dt.strftime("%Y-%m-%d %H:%M")
+                except ValueError:
+                    date_str = created[:16]
+            else:
+                date_str = ""
+
+            # Show if it was derived from another recipe
+            from_recipe = meta.get("from", "")
+            if from_recipe:
+                name = f"{name} (from: {from_recipe})"
+
+        except Exception:
+            date_str = ""
+
+        if date_str:
+            print(f"  {name:<30} {date_str}")
+        else:
+            print(f"  {name}")
 
 
 def _get_nested(data: dict[str, Any], path: list[str]) -> Any:
@@ -570,6 +622,7 @@ Usage:
   {prog} run <name> [overrides...]       Run from recipe
   {prog} edit <name>                     Edit recipe (TUI)
   {prog} show [name] [overrides...]      Show config with sources
+  {prog} list                            List all recipes
   {prog} --config <path> [overrides...]  Run from file
 
 Examples:
