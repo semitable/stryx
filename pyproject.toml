@@ -1,13 +1,21 @@
 [project]
 name = "stryx"
 version = "0.1.0"
-description = "Add your description here"
+description = "Interactive config builder for Pydantic schemas"
 readme = "README.md"
 authors = [
     { name = "Filippos Christianos", email = "filippos.christianos@gmail.com" }
 ]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "prompt-toolkit>=3.0.52",
+    "pydantic>=2",
+    "pyyaml>=6.0.3",
+    "rapidfuzz>=3.0.0",
+]
+
+[project.scripts]
+stryx = "stryx.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9.6,<0.10.0"]
