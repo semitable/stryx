@@ -24,6 +24,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -71,6 +72,9 @@ class ParsedArgs:
     from_recipe: str | None = None
     overrides: list[str] = field(default_factory=list)
     run_id_override: str | None = None
+    recipes_dir_override: Path | None = None
+    run_dir_override: Path | None = None
+    run_dir_override: Path | None = None
 
 
 def _parse_argv(argv: list[str]) -> ParsedArgs:
@@ -79,26 +83,76 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
     Handles all argument parsing in one place for consistency.
     """
     run_id_override, argv = parse_run_id_options(argv)
+    run_dir_override: Path | None = None
+    recipes_dir_override: Path | None = None
+
+    # Extract dir overrides before command parsing
+    filtered: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ("--run-dir", "--runs-dir"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{arg} requires a value")
+            run_dir_override = Path(argv[i + 1]).expanduser()
+            i += 2
+            continue
+        if arg.startswith("--run-dir=") or arg.startswith("--runs-dir="):
+            run_dir_override = Path(arg.split("=", 1)[1]).expanduser()
+            i += 1
+            continue
+
+        if arg in ("--configs-dir", "--recipes-dir"):
+            if i + 1 >= len(argv):
+                raise SystemExit(f"{arg} requires a value")
+            recipes_dir_override = Path(argv[i + 1]).expanduser()
+            i += 2
+            continue
+        if arg.startswith("--configs-dir=") or arg.startswith("--recipes-dir="):
+            recipes_dir_override = Path(arg.split("=", 1)[1]).expanduser()
+            i += 1
+            continue
+
+        filtered.append(arg)
+        i += 1
+    argv = filtered
 
     # No args → run with defaults
     if not argv:
-        return ParsedArgs(command="run", run_id_override=run_id_override)
+        return ParsedArgs(
+            command="run",
+            run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
+        )
 
     first = argv[0]
 
     # --help / -h
     if first in ("--help", "-h"):
-        return ParsedArgs(command="help", run_id_override=run_id_override)
+        return ParsedArgs(
+            command="help",
+            run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
+        )
 
     # list (no additional args)
     if first == "list":
-        return ParsedArgs(command="list", run_id_override=run_id_override)
+        return ParsedArgs(
+            command="list",
+            run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
+        )
 
     # create-run-id (optional run-id/style flags already parsed)
     if first == "create-run-id":
         return ParsedArgs(
             command="create-run-id",
             run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
         )
 
     # new [name] [--from <src>] [overrides...]
@@ -132,6 +186,8 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
             from_recipe=from_recipe,
             overrides=overrides,
             run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
         )
 
     # run <name|path> [overrides...]
@@ -145,19 +201,29 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
                 config_path=Path(target),
                 overrides=argv[2:],
                 run_id_override=run_id_override,
+                run_dir_override=run_dir_override,
+                recipes_dir_override=recipes_dir_override,
             )
         return ParsedArgs(
             command="run",
             recipe=target,
             overrides=argv[2:],
             run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
         )
 
     # edit <name>
     if first == "edit":
         if len(argv) < 2:
             raise SystemExit("'edit' requires a recipe name")
-        return ParsedArgs(command="edit", recipe=argv[1], run_id_override=run_id_override)
+        return ParsedArgs(
+            command="edit",
+            recipe=argv[1],
+            run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
+        )
 
     # show [name|path] [overrides...]
     if first == "show":
@@ -186,6 +252,8 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
             config_path=config_path,
             overrides=overrides,
             run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
         )
 
     # Default: treat all args as overrides → run
@@ -200,6 +268,8 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
         command="run",
         overrides=argv,
         run_id_override=run_id_override,
+        run_dir_override=run_dir_override,
+        recipes_dir_override=recipes_dir_override,
     )
 
 
@@ -282,6 +352,8 @@ def _dispatch(
 ) -> Any:
     """Parse argv and dispatch to appropriate handler."""
     args = _parse_argv(argv)
+    effective_runs_dir = Path(args.run_dir_override or os.getenv("STRYX_RUN_DIR") or runs_dir)
+    effective_recipes_dir = Path(args.recipes_dir_override or os.getenv("STRYX_CONFIGS_DIR") or recipes_dir)
 
     if args.command == "create-run-id":
         if _wants_help(argv):
@@ -299,22 +371,22 @@ def _dispatch(
         return
 
     if args.command == "list":
-        return _cmd_list(recipes_dir)
+        return _cmd_list(effective_recipes_dir)
 
     if args.command == "new":
-        return _cmd_new(schema, recipes_dir, args)
+        return _cmd_new(schema, effective_recipes_dir, args)
 
     if args.command == "edit":
-        return _cmd_edit(schema, recipes_dir, args.recipe)
+        return _cmd_edit(schema, effective_recipes_dir, args.recipe)
 
     if args.command == "show":
-        return _cmd_show(schema, recipes_dir, args)
+        return _cmd_show(schema, effective_recipes_dir, args)
 
     # command == "run"
     if args.config_path:
         cfg = _load_and_override(schema, args.config_path, args.overrides)
     elif args.recipe:
-        recipe_path = recipes_dir / f"{args.recipe}.yaml"
+        recipe_path = effective_recipes_dir / f"{args.recipe}.yaml"
         cfg = _load_and_override(schema, recipe_path, args.overrides)
     else:
         cfg = _build_config(schema, args.overrides)
@@ -322,8 +394,8 @@ def _dispatch(
     _record_run_manifest(
         schema=schema,
         cfg=cfg,
-        runs_dir=runs_dir,
-        source=_config_source(args, recipes_dir),
+        runs_dir=effective_runs_dir,
+        source=_config_source(args, effective_recipes_dir),
         overrides=args.overrides,
         run_id_override=args.run_id_override,
     )
@@ -1112,6 +1184,10 @@ Usage:
 
 Run ID options:
   --run-id <id>              Use an explicit run id (conflicts with STRYX_RUN_ID)
+
+Directories:
+  --configs-dir <path>       Override recipes directory (or STRYX_CONFIGS_DIR)
+  --run-dir <path>           Override runs directory (or STRYX_RUN_DIR)
 
 Examples:
   {prog} lr=1e-4 train.steps=1000

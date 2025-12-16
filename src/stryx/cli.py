@@ -40,6 +40,10 @@ Usage:
 Run ID options:
   --run-id <id>              Use an explicit run id (conflicts with STRYX_RUN_ID)
 
+Directories:
+  --configs-dir <path>       Override recipes directory (or STRYX_CONFIGS_DIR)
+  --run-dir <path>           Override runs directory (or STRYX_RUN_DIR)
+
 Typical usage is via the @stryx.cli decorator on your script:
   python train.py                      # Run with defaults
   python train.py lr=1e-3              # Run with overrides

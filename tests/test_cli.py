@@ -90,7 +90,7 @@ class TestCLIDecorator:
         assert not calls  # ensure user function not called
 
     def test_resolved_config_written(self, monkeypatch, tmp_path):
-        """run writes resolved config and sets STRYX_CONFIG/STRYX_RUN_ID."""
+        """run writes resolved config."""
         calls = []
 
         @stryx.cli(schema=Config, recipes_dir=tmp_path / "configs", runs_dir=tmp_path / "runs")
@@ -123,6 +123,26 @@ class TestCLIDecorator:
         out = capsys.readouterr().out
         assert "run id" in out.lower()
         assert not calls
+
+    def test_configs_dir_override(self, monkeypatch, tmp_path):
+        """--configs-dir writes recipes to the overridden directory."""
+        recipes_dir = tmp_path / "alt_configs"
+
+        @stryx.cli(schema=Config)
+        def main(cfg: Config):
+            raise AssertionError("user function should not run for 'new'")
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["train.py", "--configs-dir", str(recipes_dir), "new", "custom", "lr=0.2"],
+        )
+        main()
+
+        recipe_path = recipes_dir / "custom.yaml"
+        assert recipe_path.exists()
+        data = stryx.utils.read_yaml(recipe_path)
+        assert data["lr"] == 0.2
 
 
 class TestFromDataclass:
