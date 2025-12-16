@@ -22,7 +22,11 @@ Commands:
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
+import platform
+import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -184,12 +188,14 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
 def cli(
     schema: type[T] | None = None,
     recipes_dir: str | Path = "configs",
+    runs_dir: str | Path = "runs",
 ) -> Callable[[Callable[[T], Any]], Callable[[], Any]]:
     """Decorator that adds Stryx CLI to a function.
 
     Args:
         schema: Pydantic model class for config. If None, inferred from type hints.
         recipes_dir: Directory for storing recipes (default: configs)
+        runs_dir: Directory for storing run manifests (default: runs)
 
     Example:
         @stryx.cli(schema=Config)
@@ -202,6 +208,7 @@ def cli(
             train(cfg)
     """
     recipes_path = Path(recipes_dir)
+    runs_path = Path(runs_dir)
 
     def decorator(func: Callable[[T], Any]) -> Callable[[], Any]:
         nonlocal schema
@@ -228,7 +235,7 @@ def cli(
 
             # Otherwise, parse CLI and dispatch
             argv = sys.argv[1:]
-            return _dispatch(func, resolved_schema, recipes_path, argv)
+            return _dispatch(func, resolved_schema, recipes_path, runs_path, argv)
 
         # Attach metadata for introspection
         wrapper._stryx_schema = resolved_schema  # type: ignore
@@ -252,6 +259,7 @@ def _dispatch(
     func: Callable[[T], Any],
     schema: type[T],
     recipes_dir: Path,
+    runs_dir: Path,
     argv: list[str],
 ) -> Any:
     """Parse argv and dispatch to appropriate handler."""
@@ -281,6 +289,14 @@ def _dispatch(
         cfg = _load_and_override(schema, recipe_path, args.overrides)
     else:
         cfg = _build_config(schema, args.overrides)
+
+    _record_run_manifest(
+        schema=schema,
+        cfg=cfg,
+        runs_dir=runs_dir,
+        source=_config_source(args, recipes_dir),
+        overrides=args.overrides,
+    )
 
     return func(cfg)
 
@@ -584,6 +600,159 @@ def _print_with_sources(
             # Align source annotations
             padding = max(1, 45 - len(left_part))
             print(f"{left_part}{' ' * padding}({source})")
+
+
+# =============================================================================
+# Run Manifest
+# =============================================================================
+
+def _config_source(args: ParsedArgs, recipes_dir: Path) -> dict[str, Any]:
+    """Summarize where the config came from for manifest recording."""
+    if args.config_path:
+        return {
+            "kind": "file",
+            "path": str(args.config_path),
+            "name": args.config_path.stem,
+        }
+    if args.recipe:
+        recipe_path = recipes_dir / f"{args.recipe}.yaml"
+        return {
+            "kind": "recipe",
+            "name": args.recipe,
+            "path": str(recipe_path),
+        }
+    return {"kind": "defaults", "name": None, "path": None}
+
+
+def _record_run_manifest(
+    schema: type[BaseModel],
+    cfg: BaseModel,
+    runs_dir: Path,
+    source: dict[str, Any],
+    overrides: list[str],
+) -> None:
+    """Write a per-run manifest with resolved config and metadata."""
+    run_id = _generate_run_id(source.get("name") or source.get("path"))
+    run_root = runs_dir / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    manifest_path = run_root / "manifest.yaml"
+
+    patch_path = _write_git_patch(run_root)
+
+    manifest = {
+        "run_id": run_id,
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        "schema": f"{schema.__module__}:{schema.__name__}",
+        "config_source": source,
+        "overrides": overrides or [],
+        "config": cfg.model_dump(mode="python"),
+        "git": _git_info(),
+        "python": {"version": _python_version()},
+        "uv": {"lock_hash": _uv_lock_hash()},
+    }
+    manifest["git"]["untracked"] = _git_untracked_files()
+    if patch_path:
+        manifest["code"] = {"patch_file": str(patch_path)}
+
+    try:
+        write_yaml(manifest_path, manifest)
+    except Exception as exc:  # pragma: no cover - avoid failing user runs on manifest write issues
+        print(
+            f"Warning: failed to write run manifest to {manifest_path}: {exc}",
+            file=sys.stderr,
+        )
+
+
+def _generate_run_id(label: str | None) -> str:
+    """Generate a readable, timestamped run id."""
+    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    base = _slugify(label) if label else ""
+    if not base:
+        base = Path(sys.argv[0]).stem or "run"
+    return f"run_{ts}_{base}"
+
+
+def _slugify(value: str) -> str:
+    """Convert arbitrary text into a filesystem-friendly slug."""
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "-", value).strip("-").lower()
+    return cleaned[:40]
+
+
+def _run_cmd(cmd: list[str], timeout: float = 2.0) -> str | None:
+    """Run a subprocess command and return stdout, or None on failure."""
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _git_info() -> dict[str, Any]:
+    """Return git SHA and dirty flag, if available."""
+    sha = _run_cmd(["git", "rev-parse", "HEAD"])
+    dirty: bool | None = None
+
+    if sha:
+        status = _run_cmd(["git", "status", "--porcelain"])
+        dirty = bool(status)
+
+    return {"sha": sha, "dirty": dirty}
+
+
+def _git_untracked_files() -> list[str]:
+    """Return a list of untracked file paths, relative to repo root."""
+    if not _run_cmd(["git", "rev-parse", "--is-inside-work-tree"]):
+        return []
+
+    output = _run_cmd(["git", "ls-files", "--others", "--exclude-standard"])
+    if not output:
+        return []
+    return [line for line in output.splitlines() if line.strip()]
+
+
+def _uv_lock_hash(lock_path: Path | None = None) -> str | None:
+    """Compute a hash of uv.lock to capture dependency state."""
+    path = lock_path or Path("uv.lock")
+    if not path.exists():
+        return None
+
+    hasher = hashlib.sha256()
+    try:
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(8192), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    except OSError:
+        return None
+
+
+def _write_git_patch(run_root: Path) -> Path | None:
+    """Write a git patch of the working tree to the run directory if dirty."""
+    # Check if we are in a git repo
+    if not _run_cmd(["git", "rev-parse", "--is-inside-work-tree"]):
+        return None
+
+    patch = _run_cmd(["git", "diff", "--patch", "HEAD"])
+    if not patch:
+        return None
+
+    out_path = run_root / "code.patch"
+    try:
+        out_path.write_text(patch + "\n", encoding="utf-8")
+        return out_path
+    except OSError:
+        return None
+
+
+def _python_version() -> str:
+    """Return short Python version string."""
+    return platform.python_version()
 
 
 # =============================================================================
