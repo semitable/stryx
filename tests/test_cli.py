@@ -124,6 +124,23 @@ class TestCLIDecorator:
         assert "run id" in out.lower()
         assert not calls
 
+    def test_schema_command(self, monkeypatch, capsys):
+        """schema command prints the schema and fields."""
+        calls = []
+
+        @stryx.cli(schema=Config)
+        def main(cfg: Config):
+            calls.append(cfg)
+
+        monkeypatch.setattr(sys, "argv", ["train.py", "schema"])
+        main()
+
+        out = capsys.readouterr().out
+        assert "Schema: tests.test_cli:Config" in out
+        assert "Fields:" in out
+        assert "lr: float = 1.00e-04" in out
+        assert not calls
+
     def test_configs_dir_override(self, monkeypatch, tmp_path):
         """--configs-dir writes recipes to the overridden directory."""
         recipes_dir = tmp_path / "alt_configs"
@@ -231,18 +248,18 @@ class TestConfigBuilding:
 
     def test_build_with_overrides(self):
         """Config builds correctly with CLI-style overrides."""
-        from stryx.decorator import _build_config
+        from stryx.config_builder import build_config
 
-        cfg = _build_config(Config, ["lr=0.001", "name=experiment"])
+        cfg = build_config(Config, ["lr=0.001", "name=experiment"])
 
         assert cfg.lr == 0.001
         assert cfg.name == "experiment"
 
     def test_nested_overrides(self):
         """Nested fields can be overridden with dot notation."""
-        from stryx.decorator import _build_config
+        from stryx.config_builder import build_config
 
-        cfg = _build_config(Config, ["train.steps=500", "train.batch_size=64"])
+        cfg = build_config(Config, ["train.steps=500", "train.batch_size=64"])
 
         assert cfg.train.steps == 500
         assert cfg.train.batch_size == 64
@@ -253,34 +270,34 @@ class TestRecipeIO:
 
     def test_save_and_load_recipe(self):
         """Can save a recipe and load it back."""
-        from stryx.decorator import _build_config, _load_and_override
+        from stryx.config_builder import build_config, load_and_override
         from stryx.utils import write_yaml
 
         with tempfile.TemporaryDirectory() as tmpdir:
             recipe_path = Path(tmpdir) / "test.yaml"
 
             # Build and save
-            cfg = _build_config(Config, ["lr=0.001"])
+            cfg = build_config(Config, ["lr=0.001"])
             write_yaml(recipe_path, cfg.model_dump())
 
             # Load back
-            loaded = _load_and_override(Config, recipe_path, [])
+            loaded = load_and_override(Config, recipe_path, [])
 
             assert loaded.lr == 0.001
 
     def test_load_with_overrides(self):
         """Can load recipe and apply additional overrides."""
-        from stryx.decorator import _build_config, _load_and_override
+        from stryx.config_builder import build_config, load_and_override
         from stryx.utils import write_yaml
 
         with tempfile.TemporaryDirectory() as tmpdir:
             recipe_path = Path(tmpdir) / "test.yaml"
 
             # Save with lr=0.001
-            cfg = _build_config(Config, ["lr=0.001"])
+            cfg = build_config(Config, ["lr=0.001"])
             write_yaml(recipe_path, cfg.model_dump())
 
             # Load and override lr
-            loaded = _load_and_override(Config, recipe_path, ["lr=0.0001"])
+            loaded = load_and_override(Config, recipe_path, ["lr=0.0001"])
 
             assert loaded.lr == 0.0001

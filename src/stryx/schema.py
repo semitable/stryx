@@ -79,6 +79,33 @@ class FieldInfo:
     required: bool  # True if no default
     description: str | None  # from Field(description=...)
 
+    @property
+    def default_str(self) -> str:
+        """Format default value for display."""
+        return format_default(self.default) if not self.required else ""
+
+
+def format_default(value: Any) -> str:
+    """Format a default value for display."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        if len(value) > 30:
+            return f'"{value[:27]}..."'
+        return f'"{value}"'
+    if isinstance(value, float):
+        if value != 0 and (abs(value) < 0.001 or abs(value) >= 10000):
+            return f"{value:.2e}"
+        return str(value)
+    if isinstance(value, (list, dict)):
+        s = str(value)
+        if len(s) > 30:
+            return s[:27] + "..."
+        return s
+    return str(value)
+
 
 def extract_fields(schema: Type[BaseModel], prefix: str = "") -> list[FieldInfo]:
     """
