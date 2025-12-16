@@ -25,7 +25,6 @@ import functools
 import hashlib
 import json
 import platform
-import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -35,7 +34,8 @@ from typing import Any, Callable, Literal, TypeVar, Union
 
 from pydantic import BaseModel, ValidationError
 
-from .utils import read_yaml, write_yaml, set_dotpath
+from .run_id import derive_run_id, parse_run_id_options
+from .utils import read_yaml, set_dotpath, write_yaml
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -58,7 +58,7 @@ def _is_path(arg: str) -> bool:
 # CLI Argument Parsing
 # =============================================================================
 
-Command = Literal["run", "new", "edit", "show", "list", "help"]
+Command = Literal["run", "new", "edit", "show", "list", "help", "create-run-id"]
 
 
 @dataclass
@@ -70,6 +70,7 @@ class ParsedArgs:
     config_path: Path | None = None
     from_recipe: str | None = None
     overrides: list[str] = field(default_factory=list)
+    run_id_override: str | None = None
 
 
 def _parse_argv(argv: list[str]) -> ParsedArgs:
@@ -77,19 +78,28 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
 
     Handles all argument parsing in one place for consistency.
     """
+    run_id_override, argv = parse_run_id_options(argv)
+
     # No args → run with defaults
     if not argv:
-        return ParsedArgs(command="run")
+        return ParsedArgs(command="run", run_id_override=run_id_override)
 
     first = argv[0]
 
     # --help / -h
     if first in ("--help", "-h"):
-        return ParsedArgs(command="help")
+        return ParsedArgs(command="help", run_id_override=run_id_override)
 
     # list (no additional args)
     if first == "list":
-        return ParsedArgs(command="list")
+        return ParsedArgs(command="list", run_id_override=run_id_override)
+
+    # create-run-id (optional run-id/style flags already parsed)
+    if first == "create-run-id":
+        return ParsedArgs(
+            command="create-run-id",
+            run_id_override=run_id_override,
+        )
 
     # new [name] [--from <src>] [overrides...]
     # Name is optional - if first arg contains '=', it's an override and we auto-generate
@@ -121,6 +131,7 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
             recipe=name,  # None means auto-generate
             from_recipe=from_recipe,
             overrides=overrides,
+            run_id_override=run_id_override,
         )
 
     # run <name|path> [overrides...]
@@ -133,18 +144,20 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
                 command="run",
                 config_path=Path(target),
                 overrides=argv[2:],
+                run_id_override=run_id_override,
             )
         return ParsedArgs(
             command="run",
             recipe=target,
             overrides=argv[2:],
+            run_id_override=run_id_override,
         )
 
     # edit <name>
     if first == "edit":
         if len(argv) < 2:
             raise SystemExit("'edit' requires a recipe name")
-        return ParsedArgs(command="edit", recipe=argv[1])
+        return ParsedArgs(command="edit", recipe=argv[1], run_id_override=run_id_override)
 
     # show [name|path] [overrides...]
     if first == "show":
@@ -172,6 +185,7 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
             recipe=recipe,
             config_path=config_path,
             overrides=overrides,
+            run_id_override=run_id_override,
         )
 
     # Default: treat all args as overrides → run
@@ -182,7 +196,11 @@ def _parse_argv(argv: list[str]) -> ParsedArgs:
             f"Or use overrides like: {first}=value"
         )
 
-    return ParsedArgs(command="run", overrides=argv)
+    return ParsedArgs(
+        command="run",
+        overrides=argv,
+        run_id_override=run_id_override,
+    )
 
 
 def cli(
@@ -265,6 +283,17 @@ def _dispatch(
     """Parse argv and dispatch to appropriate handler."""
     args = _parse_argv(argv)
 
+    if args.command == "create-run-id":
+        if _wants_help(argv):
+            _print_run_id_help(Path(sys.argv[0]).name)
+            return
+        run_id = derive_run_id(
+            label=Path(sys.argv[0]).stem,
+            run_id_override=args.run_id_override,
+        )
+        print(run_id)
+        return
+
     if args.command == "help":
         _print_help(schema)
         return
@@ -296,6 +325,7 @@ def _dispatch(
         runs_dir=runs_dir,
         source=_config_source(args, recipes_dir),
         overrides=args.overrides,
+        run_id_override=args.run_id_override,
     )
 
     return func(cfg)
@@ -630,9 +660,13 @@ def _record_run_manifest(
     runs_dir: Path,
     source: dict[str, Any],
     overrides: list[str],
+    run_id_override: str | None,
 ) -> None:
     """Write a per-run manifest with resolved config and metadata."""
-    run_id = _generate_run_id(source.get("name") or source.get("path"))
+    run_id = derive_run_id(
+        label=source.get("name") or source.get("path"),
+        run_id_override=run_id_override,
+    )
     run_root = runs_dir / run_id
     run_root.mkdir(parents=True, exist_ok=True)
     manifest_path = run_root / "manifest.yaml"
@@ -663,19 +697,9 @@ def _record_run_manifest(
         )
 
 
-def _generate_run_id(label: str | None) -> str:
-    """Generate a readable, timestamped run id."""
-    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-    base = _slugify(label) if label else ""
-    if not base:
-        base = Path(sys.argv[0]).stem or "run"
-    return f"run_{ts}_{base}"
-
-
-def _slugify(value: str) -> str:
-    """Convert arbitrary text into a filesystem-friendly slug."""
-    cleaned = re.sub(r"[^A-Za-z0-9]+", "-", value).strip("-").lower()
-    return cleaned[:40]
+def _wants_help(argv: list[str]) -> bool:
+    """Return True if help flags are present in argv (excluding program name)."""
+    return any(tok in ("--help", "-h") for tok in argv)
 
 
 def _run_cmd(cmd: list[str], timeout: float = 2.0) -> str | None:
@@ -1073,6 +1097,10 @@ Usage:
   {prog} edit <name>                     Edit recipe (TUI)
   {prog} show [name|path] [overrides...] Show config with sources
   {prog} list                            List all recipes
+  {prog} create-run-id [options]         Print a generated run id
+
+Run ID options:
+  --run-id <id>              Use an explicit run id (conflicts with STRYX_RUN_ID)
 
 Examples:
   {prog} lr=1e-4 train.steps=1000
@@ -1140,3 +1168,17 @@ Schema: {schema.__module__}:{schema.__name__}
                 if has_children or next_has_children:
                     print()
         print()
+
+
+def _print_run_id_help(prog: str) -> None:
+    """Print help for run-id generation."""
+    print(
+        f"""Generate a run id and exit.
+
+Usage:
+  {prog} create-run-id [options]
+
+Options:
+  --run-id <id>              Use an explicit run id (conflicts with STRYX_RUN_ID)
+"""
+    )

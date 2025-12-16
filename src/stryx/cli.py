@@ -1,43 +1,53 @@
 #!/usr/bin/env python3
-"""Stryx CLI - shows usage information.
+"""Stryx CLI - minimal helpers and usage info."""
 
-The main entry point for Stryx is your training script with the @stryx.cli decorator.
-This standalone command provides general information and utilities.
-"""
+from __future__ import annotations
+
 import sys
+from pathlib import Path
+
+from .run_id import derive_run_id, parse_run_id_options
 
 
 def main() -> None:
     """Main CLI entry point."""
-    print("""Stryx - Typed Configuration Compiler for ML Experiments
+    run_id_override, argv = parse_run_id_options(sys.argv[1:])
 
-Stryx works through a decorator on your training script:
+    if argv and argv[0] in ("--help", "-h"):
+        _print_help(Path(sys.argv[0]).name)
+        sys.exit(0)
 
-    import stryx
-    from pydantic import BaseModel
+    if argv and argv[0] == "create-run-id":
+        if any(tok in ("--help", "-h") for tok in argv[1:]):
+            _print_help(Path(sys.argv[0]).name)
+            sys.exit(0)
+        run_id = derive_run_id(label=Path(sys.argv[0]).stem, run_id_override=run_id_override)
+        print(run_id)
+        sys.exit(0)
 
-    class Config(BaseModel):
-        lr: float = 1e-4
-        batch_size: int = 32
-
-    @stryx.cli(schema=Config)
-    def main(cfg: Config):
-        train(cfg)
-
-    if __name__ == "__main__":
-        main()
-
-Then run your script directly:
-
-    python train.py                      # Run with defaults
-    python train.py lr=1e-3              # Run with overrides
-    python train.py new my_exp lr=1e-3   # Save recipe
-    python train.py run my_exp           # Run from recipe
-    python train.py edit my_exp          # Edit in TUI
-
-For more information, see: https://github.com/user/stryx
-""")
+    _print_help(Path(sys.argv[0]).name)
     sys.exit(0)
+
+
+def _print_help(prog: str) -> None:
+    print(
+        f"""Stryx - Typed Configuration Compiler for ML Experiments
+
+Usage:
+  {prog} --help                       Show this help
+  {prog} create-run-id [options]      Print a generated run id
+
+Run ID options:
+  --run-id <id>              Use an explicit run id (conflicts with STRYX_RUN_ID)
+
+Typical usage is via the @stryx.cli decorator on your script:
+  python train.py                      # Run with defaults
+  python train.py lr=1e-3              # Run with overrides
+  python train.py new my_exp lr=1e-3   # Save recipe
+  python train.py run my_exp           # Run from recipe
+  python train.py edit my_exp          # Edit in TUI
+"""
+    )
 
 
 if __name__ == "__main__":

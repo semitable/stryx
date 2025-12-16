@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+import sys
 
 import pytest
 from pydantic import BaseModel, Field
@@ -64,6 +65,43 @@ class TestCLIDecorator:
         # Direct call with config object
         main(Config(lr=0.001))
         assert result[0] == 0.001
+
+    def test_create_run_id_command(self, monkeypatch, capsys):
+        """create-run-id prints an id and does not run the user function."""
+        calls = []
+
+        @stryx.cli(schema=Config)
+        def main(cfg: Config):
+            calls.append(cfg)
+
+        monkeypatch.setenv("STRYX_RUN_ID", "", prepend=False)
+        monkeypatch.setenv("TORCHELASTIC_RUN_ID", "", prepend=False)
+        monkeypatch.setenv("SLURM_JOB_ID", "", prepend=False)
+
+        monkeypatch.setenv("PYTHONHASHSEED", "0", prepend=False)  # keep env stable
+        monkeypatch.setenv("WORLD_SIZE", "", prepend=False)
+
+        monkeypatch.setattr(sys, "argv", ["train.py", "create-run-id"])
+        main()
+
+        out = capsys.readouterr().out.strip()
+        assert out.startswith("run_")
+        assert not calls  # ensure user function not called
+
+    def test_create_run_id_help(self, monkeypatch, capsys):
+        """create-run-id --help shows help and does not run the user function."""
+        calls = []
+
+        @stryx.cli(schema=Config)
+        def main(cfg: Config):
+            calls.append(cfg)
+
+        monkeypatch.setattr(sys, "argv", ["train.py", "create-run-id", "--help"])
+        main()
+
+        out = capsys.readouterr().out
+        assert "run id" in out.lower()
+        assert not calls
 
 
 class TestFromDataclass:
