@@ -27,7 +27,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal, TypeVar
+from typing import Any, Callable, Literal, TypeVar, Union
 
 from pydantic import BaseModel, ValidationError
 
@@ -715,6 +715,131 @@ def _read_config_file(path: Path) -> Any:
 # Help
 # =============================================================================
 
+def _get_type_name(annotation: Any) -> str:
+    """Get a readable type name from a type annotation."""
+    import types
+    from typing import Union, get_args, get_origin
+
+    origin = get_origin(annotation)
+
+    # Handle Optional[X] (Union[X, None])
+    if origin is Union:
+        args = get_args(annotation)
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1 and type(None) in args:
+            return f"{_get_type_name(non_none[0])}?"
+        # Union of multiple types
+        return " | ".join(_get_type_name(a) for a in args if a is not type(None))
+
+    # Handle X | Y (Python 3.10+ union)
+    if isinstance(annotation, types.UnionType):
+        args = get_args(annotation)
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1 and type(None) in args:
+            return f"{_get_type_name(non_none[0])}?"
+        return " | ".join(_get_type_name(a) for a in args if a is not type(None))
+
+    # Handle list[X], dict[K, V], etc.
+    if origin is list:
+        args = get_args(annotation)
+        if args:
+            return f"list[{_get_type_name(args[0])}]"
+        return "list"
+
+    if origin is dict:
+        args = get_args(annotation)
+        if len(args) == 2:
+            return f"dict[{_get_type_name(args[0])}, {_get_type_name(args[1])}]"
+        return "dict"
+
+    # Handle Literal["a", "b"]
+    if origin is Literal:
+        args = get_args(annotation)
+        return " | ".join(repr(a) for a in args)
+
+    # BaseModel subclass
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation.__name__
+
+    # Simple types
+    if hasattr(annotation, "__name__"):
+        return annotation.__name__
+
+    return str(annotation)
+
+
+def _format_default(value: Any) -> str:
+    """Format a default value for display."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        if len(value) > 30:
+            return f'"{value[:27]}..."'
+        return f'"{value}"'
+    if isinstance(value, float):
+        if value != 0 and (abs(value) < 0.001 or abs(value) >= 10000):
+            return f"{value:.2e}"
+        return str(value)
+    if isinstance(value, (list, dict)):
+        s = str(value)
+        if len(s) > 30:
+            return s[:27] + "..."
+        return s
+    return str(value)
+
+
+def _extract_schema_fields(
+    schema: type[BaseModel],
+    prefix: str = "",
+) -> list[tuple[str, str, str, str | None]]:
+    """Extract fields from schema recursively.
+
+    Returns list of (path, type_name, default_str, description).
+    """
+    from pydantic.fields import FieldInfo
+
+    fields = []
+
+    for name, field_info in schema.model_fields.items():
+        path = f"{prefix}.{name}" if prefix else name
+        annotation = field_info.annotation
+        description = field_info.description
+
+        # Get default value
+        default = field_info.default
+        if default is None and field_info.default_factory is not None:
+            # Try to get value from factory
+            try:
+                default = field_info.default_factory()
+            except Exception:
+                default = None
+
+        # Check if this is a nested BaseModel
+        inner_type = annotation
+        # Unwrap Optional
+        origin = getattr(annotation, "__origin__", None)
+        if origin is Union:
+            from typing import get_args
+            args = get_args(annotation)
+            non_none = [a for a in args if a is not type(None)]
+            if len(non_none) == 1:
+                inner_type = non_none[0]
+
+        if isinstance(inner_type, type) and issubclass(inner_type, BaseModel):
+            # Nested model - recurse
+            nested_fields = _extract_schema_fields(inner_type, prefix=path)
+            fields.extend(nested_fields)
+        else:
+            # Leaf field
+            type_name = _get_type_name(annotation)
+            default_str = _format_default(default) if default is not None else ""
+            fields.append((path, type_name, default_str, description))
+
+    return fields
+
+
 def _print_help(schema: type[BaseModel]) -> None:
     """Print CLI help message."""
     prog = Path(sys.argv[0]).name
@@ -733,12 +858,32 @@ Usage:
 Examples:
   {prog} lr=1e-4 train.steps=1000
   {prog} new my_exp lr=1e-4
-  {prog} new lr=1e-4                     # Auto-generates exp_001, exp_002, ...
-  {prog} new my_exp_v2 --from my_exp batch_size=64
   {prog} run my_exp
-  {prog} run ../other/config.yaml        # Path (contains / or ends in .yaml)
-  {prog} edit my_exp
   {prog} show my_exp lr=1e-5             # See where values come from
 
 Schema: {schema.__module__}:{schema.__name__}
 """)
+
+    # Print schema fields
+    fields = _extract_schema_fields(schema)
+    if fields:
+        print("Fields:")
+        for path, type_name, default_str, description in fields:
+            # Build the field line
+            if default_str:
+                line = f"  {path}: {type_name} = {default_str}"
+            else:
+                line = f"  {path}: {type_name}"
+
+            # Add description if present
+            if description:
+                # Align description or put on same line if short
+                if len(line) < 40:
+                    padding = " " * (42 - len(line))
+                    print(f"{line}{padding}# {description}")
+                else:
+                    print(line)
+                    print(f"      # {description}")
+            else:
+                print(line)
+        print()
