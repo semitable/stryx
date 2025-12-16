@@ -670,8 +670,18 @@ def _record_run_manifest(
     run_root = runs_dir / run_id
     run_root.mkdir(parents=True, exist_ok=True)
     manifest_path = run_root / "manifest.yaml"
+    resolved_path = run_root / "config.yaml"
 
     patch_path = _write_git_patch(run_root)
+
+    # Write resolved config to its own file for reproducibility
+    try:
+        write_yaml(resolved_path, cfg.model_dump(mode="python"))
+    except Exception as exc:  # pragma: no cover - avoid failing user runs on write issues
+        print(
+            f"Warning: failed to write resolved config to {resolved_path}: {exc}",
+            file=sys.stderr,
+        )
 
     manifest = {
         "run_id": run_id,
@@ -680,13 +690,14 @@ def _record_run_manifest(
         "config_source": source,
         "overrides": overrides or [],
         "config": cfg.model_dump(mode="python"),
+        "resolved_config_path": str(resolved_path),
         "git": _git_info(),
         "python": {"version": _python_version()},
         "uv": {"lock_hash": _uv_lock_hash()},
     }
     manifest["git"]["untracked"] = _git_untracked_files()
     if patch_path:
-        manifest["code"] = {"patch_file": str(patch_path)}
+        manifest["git"]["patch_file"] = str(patch_path)
 
     try:
         write_yaml(manifest_path, manifest)
@@ -766,7 +777,7 @@ def _write_git_patch(run_root: Path) -> Path | None:
     if not patch:
         return None
 
-    out_path = run_root / "code.patch"
+    out_path = run_root / "git.patch"
     try:
         out_path.write_text(patch + "\n", encoding="utf-8")
         return out_path

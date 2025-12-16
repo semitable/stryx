@@ -6,8 +6,9 @@ They focus on user-facing behavior, not implementation details.
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 import sys
+import os
+from pathlib import Path
 
 import pytest
 from pydantic import BaseModel, Field
@@ -87,6 +88,26 @@ class TestCLIDecorator:
         out = capsys.readouterr().out.strip()
         assert out.startswith("run_")
         assert not calls  # ensure user function not called
+
+    def test_resolved_config_written(self, monkeypatch, tmp_path):
+        """run writes resolved config and sets STRYX_CONFIG/STRYX_RUN_ID."""
+        calls = []
+
+        @stryx.cli(schema=Config, recipes_dir=tmp_path / "configs", runs_dir=tmp_path / "runs")
+        def main(cfg: Config):
+            calls.append(cfg.lr)
+
+        monkeypatch.setattr(sys, "argv", ["train.py"])
+        main()
+
+        run_dirs = sorted((tmp_path / "runs").iterdir())
+        assert run_dirs, "run directory should exist"
+        run_root = run_dirs[0]
+        resolved = run_root / "config.yaml"
+        assert resolved.exists()
+
+        data = stryx.utils.read_yaml(resolved)
+        assert data["lr"] == 1e-4
 
     def test_create_run_id_help(self, monkeypatch, capsys):
         """create-run-id --help shows help and does not run the user function."""
