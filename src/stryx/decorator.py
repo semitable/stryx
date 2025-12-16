@@ -722,22 +722,30 @@ def _get_type_name(annotation: Any) -> str:
 
     origin = get_origin(annotation)
 
-    # Handle Optional[X] (Union[X, None])
+    # Handle Union types (including Optional)
     if origin is Union:
         args = get_args(annotation)
         non_none = [a for a in args if a is not type(None)]
-        if len(non_none) == 1 and type(None) in args:
-            return f"{_get_type_name(non_none[0])}?"
-        # Union of multiple types
-        return " | ".join(_get_type_name(a) for a in args if a is not type(None))
+        is_optional = type(None) in args
+        inner = " | ".join(_get_type_name(a) for a in non_none)
+        if is_optional:
+            # Add ? suffix to show it's optional
+            if len(non_none) > 1:
+                return f"({inner})?"
+            return f"{inner}?"
+        return inner
 
     # Handle X | Y (Python 3.10+ union)
     if isinstance(annotation, types.UnionType):
         args = get_args(annotation)
         non_none = [a for a in args if a is not type(None)]
-        if len(non_none) == 1 and type(None) in args:
-            return f"{_get_type_name(non_none[0])}?"
-        return " | ".join(_get_type_name(a) for a in args if a is not type(None))
+        is_optional = type(None) in args
+        inner = " | ".join(_get_type_name(a) for a in non_none)
+        if is_optional:
+            if len(non_none) > 1:
+                return f"({inner})?"
+            return f"{inner}?"
+        return inner
 
     # Handle list[X], dict[K, V], etc.
     if origin is list:
@@ -790,6 +798,27 @@ def _format_default(value: Any) -> str:
     return str(value)
 
 
+def _format_field_lines(
+    indent: str,
+    label: str,
+    type_name: str,
+    default_str: str,
+    description: str | None,
+) -> list[str]:
+    """Format a field line (with optional description) for help output."""
+    line = f"{indent}{label}: {type_name}"
+    if default_str:
+        line += f" = {default_str}"
+
+    if description:
+        if len(line) < 40:
+            padding = max(1, 42 - len(line))
+            return [f"{line}{' ' * padding}# {description}"]
+        return [line, f"{indent}  # {description}"]
+
+    return [line]
+
+
 def _extract_schema_fields(
     schema: type[BaseModel],
     prefix: str = "",
@@ -798,7 +827,7 @@ def _extract_schema_fields(
 
     Returns list of (path, type_name, default_str, description).
     """
-    from pydantic.fields import FieldInfo
+    from pydantic_core import PydanticUndefined
 
     fields = []
 
@@ -809,16 +838,21 @@ def _extract_schema_fields(
 
         # Get default value
         default = field_info.default
-        if default is None and field_info.default_factory is not None:
+        has_default = default is not PydanticUndefined
+
+        if not has_default and field_info.default_factory is not None:
             # Try to get value from factory
             try:
                 default = field_info.default_factory()
+                has_default = True
             except Exception:
-                default = None
+                pass
 
-        # Check if this is a nested BaseModel
+        # Check if this is a nested BaseModel (not a union of models)
         inner_type = annotation
-        # Unwrap Optional
+        is_union_of_models = False
+
+        # Unwrap Optional[X] to get X
         origin = getattr(annotation, "__origin__", None)
         if origin is Union:
             from typing import get_args
@@ -826,15 +860,31 @@ def _extract_schema_fields(
             non_none = [a for a in args if a is not type(None)]
             if len(non_none) == 1:
                 inner_type = non_none[0]
+            elif len(non_none) > 1:
+                # Check if all are BaseModel (discriminated union)
+                if all(isinstance(a, type) and issubclass(a, BaseModel) for a in non_none):
+                    is_union_of_models = True
 
-        if isinstance(inner_type, type) and issubclass(inner_type, BaseModel):
-            # Nested model - recurse
+        if is_union_of_models:
+            # Discriminated union - show type and default, then expand fields
+            type_name = _get_type_name(annotation)
+            if has_default and isinstance(default, BaseModel):
+                default_class = type(default).__name__
+                fields.append((path, type_name, default_class, description))
+                # Recurse into the default variant's type
+                nested_fields = _extract_schema_fields(type(default), prefix=path)
+                fields.extend(nested_fields)
+            else:
+                # No default, just show the union type
+                fields.append((path, type_name, "", description))
+        elif isinstance(inner_type, type) and issubclass(inner_type, BaseModel):
+            # Single nested model - recurse into it
             nested_fields = _extract_schema_fields(inner_type, prefix=path)
             fields.extend(nested_fields)
         else:
             # Leaf field
             type_name = _get_type_name(annotation)
-            default_str = _format_default(default) if default is not None else ""
+            default_str = _format_default(default) if has_default else ""
             fields.append((path, type_name, default_str, description))
 
     return fields
@@ -868,22 +918,56 @@ Schema: {schema.__module__}:{schema.__name__}
     fields = _extract_schema_fields(schema)
     if fields:
         print("Fields:")
-        for path, type_name, default_str, description in fields:
-            # Build the field line
-            if default_str:
-                line = f"  {path}: {type_name} = {default_str}"
-            else:
-                line = f"  {path}: {type_name}"
+        groups: dict[str, list[tuple[str, str, str, str | None]]] = {}
+        group_order: list[str] = []
 
-            # Add description if present
-            if description:
-                # Align description or put on same line if short
-                if len(line) < 40:
-                    padding = " " * (42 - len(line))
-                    print(f"{line}{padding}# {description}")
-                else:
+        # Bucket fields by their first path segment
+        for field in fields:
+            path = field[0]
+            group = path.split(".", 1)[0]
+            if group not in groups:
+                groups[group] = []
+                group_order.append(group)
+            groups[group].append(field)
+
+        grouped: list[tuple[str, tuple[str, str, str, str | None] | None, list[tuple[str, str, str, str | None]]]] = []
+        for group in group_order:
+            entries = groups[group]
+            parent = next((e for e in entries if e[0] == group), None)
+            children = [e for e in entries if e[0] != group]
+            grouped.append((group, parent, children))
+
+        for idx, (group, parent, children) in enumerate(grouped):
+            has_children = bool(children)
+            # Parent line (type/default for the group itself)
+            if parent:
+                for line in _format_field_lines(
+                    indent="  ",
+                    label=group,
+                    type_name=parent[1],
+                    default_str=parent[2],
+                    description=parent[3],
+                ):
                     print(line)
-                    print(f"      # {description}")
             else:
-                print(line)
+                print(f"  {group}:")
+
+            # Child lines (strip the group prefix for readability)
+            for child in children:
+                child_path = child[0]
+                label = child_path[len(group) + 1 :] if child_path.startswith(f"{group}.") else child_path
+                for line in _format_field_lines(
+                    indent="    ",
+                    label=label,
+                    type_name=child[1],
+                    default_str=child[2],
+                    description=child[3],
+                ):
+                    print(line)
+
+            # Separate blocks only when nested sections are involved
+            if idx != len(grouped) - 1:
+                next_has_children = bool(grouped[idx + 1][2])
+                if has_children or next_has_children:
+                    print()
         print()
