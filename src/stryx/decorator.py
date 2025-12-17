@@ -36,7 +36,7 @@ from typing import Any, Callable, Literal, TypeVar, Union
 from pydantic import BaseModel, ValidationError
 
 from .cli_parser import ParsedArgs, parse_argv
-from .commands import cmd_edit, cmd_list, cmd_new, cmd_schema, cmd_show
+from .commands import cmd_edit, cmd_fork, cmd_list, cmd_schema, cmd_show, cmd_try
 from .config_builder import (
     apply_override,
     build_config,
@@ -153,8 +153,8 @@ def _dispatch(
     if args.command == "list":
         return cmd_list(effective_recipes_dir)
 
-    if args.command == "new":
-        return cmd_new(schema, effective_recipes_dir, args)
+    if args.command == "fork":
+        return cmd_fork(schema, effective_recipes_dir, args)
 
     if args.command == "edit":
         return cmd_edit(schema, effective_recipes_dir, args.recipe)
@@ -165,21 +165,53 @@ def _dispatch(
     if args.command == "schema":
         return cmd_schema(schema)
 
-    # command == "run"
-    if args.config_path:
-        cfg = load_and_override(schema, args.config_path, args.overrides)
-    elif args.recipe:
-        recipe_path = effective_recipes_dir / f"{args.recipe}.yaml"
-        cfg = load_and_override(schema, recipe_path, args.overrides)
-    else:
-        cfg = build_config(schema, args.overrides)
+    target_path: Path | None = None
+
+    if args.command == "try":
+        target_path = cmd_try(schema, effective_recipes_dir, args)
+
+    elif args.command == "run":
+        if args.overrides:
+            raise SystemExit(
+                "Error: 'run' is strict and does not accept overrides.\n"
+                "Use 'try' to experiment: stryx try <recipe> [overrides...]\n"
+                "Use 'fork' to save changes: stryx fork <recipe> <new_name> [overrides...]"
+            )
+
+        if args.config_path:
+            target_path = args.config_path
+        elif args.recipe:
+            name = args.recipe
+            if not name.endswith(".yaml"):
+                name += ".yaml"
+
+            # Check canonical
+            p = effective_recipes_dir / name
+            if p.exists():
+                target_path = p
+            else:
+                # Check scratch
+                p = effective_recipes_dir / "scratches" / name
+                if p.exists():
+                    target_path = p
+                else:
+                    raise SystemExit(f"Recipe not found: {args.recipe}")
+        else:
+            raise SystemExit("Error: 'run' requires a recipe name.")
+
+    # Load and run
+    if not target_path or not target_path.exists():
+        raise SystemExit(f"Config file not found: {target_path}")
+
+    # We load from file without further overrides
+    cfg = load_and_override(schema, target_path, [])
 
     _record_run_manifest(
         schema=schema,
         cfg=cfg,
         runs_dir=effective_runs_dir,
-        source=_config_source(args, effective_recipes_dir),
-        overrides=args.overrides,
+        source={"kind": "file", "path": str(target_path), "name": target_path.stem},
+        overrides=args.overrides if args.command == "try" else [],
         run_id_override=args.run_id_override,
     )
 
@@ -193,22 +225,7 @@ def _dispatch(
 # Run Manifest
 # =============================================================================
 
-def _config_source(args: ParsedArgs, recipes_dir: Path) -> dict[str, Any]:
-    """Summarize where the config came from for manifest recording."""
-    if args.config_path:
-        return {
-            "kind": "file",
-            "path": str(args.config_path),
-            "name": args.config_path.stem,
-        }
-    if args.recipe:
-        recipe_path = recipes_dir / f"{args.recipe}.yaml"
-        return {
-            "kind": "recipe",
-            "name": args.recipe,
-            "path": str(recipe_path),
-        }
-    return {"kind": "defaults", "name": None, "path": None}
+
 
 
 def _is_rank_zero() -> bool:

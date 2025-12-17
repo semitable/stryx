@@ -49,10 +49,27 @@ class TestTrainExample:
         assert result.returncode == 0
         assert result.stdout
 
+    def test_try_command(self, tmp_path):
+        """try creates timestamped scratch config."""
+        result = run("train.py", ["try", "train.steps=55"], cwd=tmp_path)
+        assert result.returncode == 0
+        assert "Running scratch: scratches/" in result.stdout
+
+        # Verify file exists in scratches/
+        scratches_dir = tmp_path / "configs" / "scratches"
+        assert scratches_dir.exists()
+        files = list(scratches_dir.glob("*.yaml"))
+        assert len(files) == 1
+
+        # Verify content
+        recipe = load_recipe(files[0])
+        assert recipe["train"]["steps"] == 55
+        assert recipe["__stryx__"]["type"] == "scratch"
+
     def test_recipe_workflow(self, tmp_path):
         """new -> list -> run -> show works and produces valid config."""
         # Create recipe with custom values
-        result = run("train.py", ["new", "test", "train.steps=42"], cwd=tmp_path)
+        result = run("train.py", ["fork", "defaults", "test", "train.steps=42"], cwd=tmp_path)
         assert result.returncode == 0
 
         # Recipe file exists and is valid YAML with expected structure
@@ -70,12 +87,12 @@ class TestTrainExample:
         assert run("train.py", ["show", "test"], cwd=tmp_path).returncode == 0
 
     def test_new_from(self, tmp_path):
-        """new --from copies values from base recipe."""
+        """fork copies values from base recipe."""
         # Create base with custom value
-        run("train.py", ["new", "base", "train.steps=100"], cwd=tmp_path)
+        run("train.py", ["fork", "defaults", "base", "train.steps=100"], cwd=tmp_path)
 
         # Derive from it with another override
-        result = run("train.py", ["new", "derived", "--from", "base", "train.batch_size=64"], cwd=tmp_path)
+        result = run("train.py", ["fork", "base", "derived", "train.batch_size=64"], cwd=tmp_path)
         assert result.returncode == 0
 
         # Derived recipe has both values
@@ -85,14 +102,14 @@ class TestTrainExample:
         assert recipe["__stryx__"].get("from") == "base"  # tracks lineage
 
     def test_auto_naming(self, tmp_path):
-        """new without name auto-generates sequential names."""
+        """fork defaults without name auto-generates sequential names."""
         # Create first auto-named recipe
-        result = run("train.py", ["new", "train.steps=10"], cwd=tmp_path)
+        result = run("train.py", ["fork", "defaults", "train.steps=10"], cwd=tmp_path)
         assert result.returncode == 0
         assert (tmp_path / "configs" / "exp_001.yaml").exists()
 
         # Create second - should be exp_002
-        result = run("train.py", ["new", "train.steps=20"], cwd=tmp_path)
+        result = run("train.py", ["fork", "defaults", "train.steps=20"], cwd=tmp_path)
         assert result.returncode == 0
         assert (tmp_path / "configs" / "exp_002.yaml").exists()
 
@@ -102,16 +119,7 @@ class TestTrainExample:
         assert recipe1["train"]["steps"] == 10
         assert recipe2["train"]["steps"] == 20
 
-        # Create second - should be exp_002
-        result = run("train.py", ["new", "train.steps=20"], cwd=tmp_path)
-        assert result.returncode == 0
-        assert (tmp_path / "configs" / "exp_002.yaml").exists()
 
-        # Verify values are correct
-        recipe1 = load_recipe(tmp_path / "configs" / "exp_001.yaml")
-        recipe2 = load_recipe(tmp_path / "configs" / "exp_002.yaml")
-        assert recipe1["train"]["steps"] == 10
-        assert recipe2["train"]["steps"] == 20
 
 
 class TestDataclassExample:
@@ -128,7 +136,7 @@ class TestDataclassExample:
 
     def test_recipe_has_nested_structure(self, tmp_path):
         """Dataclass config produces valid nested YAML."""
-        run("dataclass_config.py", ["new", "dc_test", "train.epochs=99"], cwd=tmp_path)
+        run("dataclass_config.py", ["fork", "defaults", "dc_test", "train.epochs=99"], cwd=tmp_path)
 
         recipe = load_recipe(tmp_path / "configs" / "dc_test.yaml")
         assert recipe["train"]["epochs"] == 99

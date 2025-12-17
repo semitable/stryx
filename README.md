@@ -14,19 +14,21 @@ Guiding principles
 Quick start
 -----------
 1) Install deps from the lockfile: `uv sync` (add extras with `uv add <pkg>` → `uv lock` → `uv sync`).
-2) Run the example: `uv run examples/train.py` (defaults) or override values `uv run examples/train.py train.steps=500`.
-3) Create and reuse a recipe:
-   - `uv run examples/train.py new my_exp optim.lr=1e-4`
-   - `uv run examples/train.py list`
-   - `uv run examples/train.py run my_exp`
-   - `uv run examples/train.py show my_exp` (annotates values with their source)
-   - `uv run examples/train.py schema` (inspects configuration schema)
+2) Experiment with defaults or overrides (auto-saves to scratch):
+   - `uv run examples/train.py try` (runs defaults)
+   - `uv run examples/train.py try train.steps=500` (runs variant)
+3) Manage recipes (strict reproducibility):
+   - `uv run examples/train.py fork defaults my_exp optim.lr=1e-4` (create new recipe)
+   - `uv run examples/train.py list` (shows canonicals and scratches)
+   - `uv run examples/train.py run my_exp` (runs exactly what is saved, no overrides)
+   - `uv run examples/train.py show my_exp` (inspect values)
+   - `uv run examples/train.py schema` (inspect schema)
 4) Edit interactively: `uv run examples/train.py edit my_exp` opens the TUI editor.
 
 CLI at a glance
 ---------------
-- `@stryx.cli(schema=Config, recipes_dir="configs")` wraps your entrypoint and adds commands: run (default), new, run <recipe|path>, show, list, edit, schema.
-- Overrides use dot paths: `train.steps=1000` or `optim.lr=3e-4`.
+- `@stryx.cli(schema=Config, recipes_dir="configs")` wraps your entrypoint and adds commands: run (strict), try (scratchpad), fork (branch), show, list, edit, schema.
+- Overrides (`train.steps=1000`) are supported only in `try` and `fork` commands.
 - Recipes include a `__stryx__` block with schema, timestamp, lineage, and overrides for traceability.
 
 Why not Hydra?

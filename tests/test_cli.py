@@ -152,7 +152,7 @@ class TestCLIDecorator:
         monkeypatch.setattr(
             sys,
             "argv",
-            ["train.py", "--configs-dir", str(recipes_dir), "new", "custom", "lr=0.2"],
+            ["train.py", "--configs-dir", str(recipes_dir), "fork", "defaults", "custom", "lr=0.2"],
         )
         main()
 

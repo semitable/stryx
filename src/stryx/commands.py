@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
 
+import petname
 from pydantic import BaseModel, ValidationError
 
 from .cli_parser import ParsedArgs
@@ -24,29 +25,98 @@ T = TypeVar("T", bound=BaseModel)
 _NOT_FOUND = object()
 
 
-def cmd_new(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
-    """Handle: new [name] [--from <src>] [overrides...] 
-
-    If name is not provided, generates sequential name (exp_001, exp_002, etc.)
-    with file locking to prevent race conditions.
-    """
-    from filelock import FileLock
-
-    # Build config first (before locking, since this doesn't need the lock)
+def cmd_try(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
+    """Handle: try [source] [overrides...] - create scratchpad run."""
+    # Resolve config
     from_path: Path | None = None
     if args.from_recipe:
-        from_path = recipes_dir / f"{args.from_recipe}.yaml"
+        # Check if source is a scratch (contains /) or canonical
+        name = args.from_recipe
+        if not name.endswith(".yaml"):
+            name += ".yaml"
+        
+        if "/" in name:
+             from_path = recipes_dir / name
+        else:
+             from_path = recipes_dir / name
+             
         if not from_path.exists():
-            raise SystemExit(f"Source recipe not found: {from_path}")
+            # If not found, check if it was a scratch name without prefix
+            scratch_path = recipes_dir / "scratches" / name
+            if scratch_path.exists():
+                from_path = scratch_path
+            else:
+                raise SystemExit(f"Source recipe not found: {args.from_recipe}")
+        
         cfg = load_and_override(schema, from_path, args.overrides)
     else:
         cfg = build_config(schema, args.overrides)
+
+    # Generate scratch name
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    # petname generate(2) gives "adjective-animal"
+    name = f"{timestamp}_{petname.generate(2)}"
+    
+    scratches_dir = recipes_dir / "scratches"
+    scratches_dir.mkdir(parents=True, exist_ok=True)
+    out_path = scratches_dir / f"{name}.yaml"
 
     # Prepare payload
     payload: dict[str, Any] = {
         "__stryx__": {
             "schema": f"{schema.__module__}:{schema.__name__}",
             "created_at": datetime.now(tz=timezone.utc).isoformat(),
+            "type": "scratch",
+        }
+    }
+    if args.from_recipe:
+        payload["__stryx__"]["from"] = args.from_recipe
+    if args.overrides:
+        payload["__stryx__"]["overrides"] = args.overrides
+    payload.update(cfg.model_dump(mode="python"))
+
+    write_yaml(out_path, payload)
+    print(f"Running scratch: scratches/{name}.yaml")
+    return out_path
+
+
+def cmd_fork(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
+    """Handle: fork <source> [name] [overrides...]"""
+    from filelock import FileLock
+
+    # Resolve config
+    from_path: Path | None = None
+    
+    if not args.from_recipe or args.from_recipe == "defaults":
+        # Fork from defaults
+        cfg = build_config(schema, args.overrides)
+    else:
+        # Fork from existing
+        name = args.from_recipe
+        if not name.endswith(".yaml"):
+            name += ".yaml"
+            
+        if "/" in name:
+             from_path = recipes_dir / name
+        else:
+             from_path = recipes_dir / name
+             
+        if not from_path.exists():
+             # Check scratches
+             scratch_path = recipes_dir / "scratches" / name
+             if scratch_path.exists():
+                 from_path = scratch_path
+             else:
+                 raise SystemExit(f"Source recipe not found: {args.from_recipe}")
+                 
+        cfg = load_and_override(schema, from_path, args.overrides)
+
+    # Prepare payload
+    payload: dict[str, Any] = {
+        "__stryx__": {
+            "schema": f"{schema.__module__}:{schema.__name__}",
+            "created_at": datetime.now(tz=timezone.utc).isoformat(),
+            "type": "canonical",
         }
     }
     if args.from_recipe:
@@ -62,7 +132,7 @@ def cmd_new(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
     if args.recipe:
         out_path = recipes_dir / f"{args.recipe}.yaml"
         write_yaml(out_path, payload)
-        print(f"Recipe saved: {out_path}")
+        print(f"Forked to: {out_path}")
         return out_path
 
     # Auto-generate sequential name with locking
@@ -72,7 +142,7 @@ def cmd_new(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
         out_path = recipes_dir / f"{name}.yaml"
         write_yaml(out_path, payload)
 
-    print(f"Recipe saved: {out_path}")
+    print(f"Forked to: {out_path}")
     return out_path
 
 
@@ -189,15 +259,27 @@ def cmd_list(recipes_dir: Path) -> None:
         print(f"No recipes directory: {recipes_dir}")
         return
 
-    recipes = sorted(recipes_dir.glob("*.yaml")) + sorted(recipes_dir.glob("*.yml"))
+    # Canonical
+    print("Experiments:")
+    print("-" * 60)
+    canonicals = sorted(recipes_dir.glob("*.yaml")) + sorted(recipes_dir.glob("*.yml"))
+    if canonicals:
+        _print_recipe_list(canonicals)
+    else:
+        print("  (none)")
+    print()
 
-    if not recipes:
-        print(f"No recipes in {recipes_dir}/")
-        return
+    # Scratches
+    scratches_dir = recipes_dir / "scratches"
+    if scratches_dir.exists():
+        scratches = sorted(scratches_dir.glob("*.yaml"), reverse=True)  # Newest first
+        if scratches:
+            print("Scratches:")
+            print("-" * 60)
+            _print_recipe_list(scratches)
 
-    print(f"Recipes ({recipes_dir}/):")
-    print("-" * 40)
 
+def _print_recipe_list(recipes: list[Path]) -> None:
     for recipe_path in recipes:
         name = recipe_path.stem
 
@@ -225,7 +307,7 @@ def cmd_list(recipes_dir: Path) -> None:
             date_str = ""
 
         if date_str:
-            print(f"  {name:<30} {date_str}")
+            print(f"  {name:<40} {date_str}")
         else:
             print(f"  {name}")
 

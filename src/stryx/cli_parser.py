@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Literal
 
 # Reserved command names
-COMMANDS = frozenset({"new", "run", "edit", "show", "list", "schema"})
+COMMANDS = frozenset({"run", "edit", "show", "list", "schema", "try", "fork"})
 
 
-Command = Literal["run", "new", "edit", "show", "list", "help", "create-run-id", "schema"]
+Command = Literal["run", "edit", "show", "list", "help", "create-run-id", "schema", "try", "fork"]
 
 
 @dataclass
@@ -79,7 +79,7 @@ def parse_argv(argv: list[str]) -> ParsedArgs:
     # No args → run with defaults
     if not argv:
         return ParsedArgs(
-            command="run",
+            command="try",
             run_id_override=run_id_override,
             run_dir_override=run_dir_override,
             recipes_dir_override=recipes_dir_override,
@@ -114,35 +114,51 @@ def parse_argv(argv: list[str]) -> ParsedArgs:
             recipes_dir_override=recipes_dir_override,
         )
 
-    # new [name] [--from <src>] [overrides...]
-    # Name is optional - if first arg contains '=', it's an override and we auto-generate
-    if first == "new":
+    # fork [source] [name] [overrides...]
+    if first == "fork":
+        source: str | None = None
         name: str | None = None
-        from_recipe: str | None = None
         overrides: list[str] = []
 
         i = 1
-        # Check if first arg is a name or an override
-        if i < len(argv) and "=" not in argv[i] and argv[i] != "--from":
-            name = argv[i]
-            if name in COMMANDS:
-                raise SystemExit(f"Cannot use reserved name '{name}' for recipe")
+        # Arg 1: source (if not override)
+        if i < len(argv) and "=" not in argv[i]:
+            source = argv[i]
             i += 1
 
-        while i < len(argv):
-            if argv[i] == "--from":
-                if i + 1 >= len(argv):
-                    raise SystemExit("--from requires a source recipe name")
-                from_recipe = argv[i + 1]
-                i += 2
-            else:
-                overrides.append(argv[i])
-                i += 1
+        # Arg 2: name (if not override)
+        if i < len(argv) and "=" not in argv[i]:
+            name = argv[i]
+            i += 1
+
+        overrides = argv[i:]
 
         return ParsedArgs(
-            command="new",
-            recipe=name,  # None means auto-generate
-            from_recipe=from_recipe,
+            command="fork",
+            from_recipe=source,
+            recipe=name,
+            overrides=overrides,
+            run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
+        )
+
+    # try [source] [overrides...]
+    if first == "try":
+        source: str | None = None
+        overrides: list[str] = []
+
+        i = 1
+        # Arg 1: source (if not override)
+        if i < len(argv) and "=" not in argv[i]:
+            source = argv[i]
+            i += 1
+
+        overrides = argv[i:]
+
+        return ParsedArgs(
+            command="try",
+            from_recipe=source,
             overrides=overrides,
             run_id_override=run_id_override,
             run_dir_override=run_dir_override,
@@ -224,7 +240,7 @@ def parse_argv(argv: list[str]) -> ParsedArgs:
             recipes_dir_override=recipes_dir_override,
         )
 
-    # Default: treat all args as overrides → run
+    # Default: treat all args as overrides → try
     if "=" not in first:
         raise SystemExit(
             f"Unknown command '{first}'.\n"
@@ -233,7 +249,7 @@ def parse_argv(argv: list[str]) -> ParsedArgs:
         )
 
     return ParsedArgs(
-        command="run",
+        command="try",
         overrides=argv,
         run_id_override=run_id_override,
         run_dir_override=run_dir_override,
