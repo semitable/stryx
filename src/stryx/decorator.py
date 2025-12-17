@@ -45,6 +45,7 @@ from .config_builder import (
     read_config_file,
     validate_or_die,
 )
+from .lifecycle import RunContext
 from .run_id import derive_run_id, parse_run_id_options
 from .utils import read_yaml, set_dotpath, write_yaml
 
@@ -212,16 +213,32 @@ def _dispatch(
     # We load from file without further overrides
     cfg = load_and_override(schema, target_path, [])
 
-    _record_run_manifest(
-        schema=schema,
-        cfg=cfg,
-        runs_dir=effective_runs_dir,
-        source={"kind": "file", "path": str(target_path), "name": target_path.stem},
-        overrides=args.overrides if args.command == "try" else [],
+    # Derive run_id safely (shared across ranks if distributed)
+    run_id = derive_run_id(
+        label=target_path.stem,
         run_id_override=args.run_id_override,
     )
 
-    return func(cfg)
+    is_rank_zero = _is_rank_zero()
+    manifest_path = None
+
+    if is_rank_zero:
+        manifest_path = _record_run_manifest(
+            schema=schema,
+            cfg=cfg,
+            runs_dir=effective_runs_dir,
+            source={"kind": "file", "path": str(target_path), "name": target_path.stem},
+            overrides=args.overrides if args.command == "try" else [],
+            run_id=run_id,
+        )
+
+    if not manifest_path:
+        manifest_path = effective_runs_dir / run_id / "manifest.yaml"
+
+    with RunContext(manifest_path, is_rank_zero) as ctx:
+        result = func(cfg)
+        ctx.record_result(result)
+        return result
 
 
 
@@ -255,16 +272,11 @@ def _record_run_manifest(
     runs_dir: Path,
     source: dict[str, Any],
     overrides: list[str],
-    run_id_override: str | None,
-) -> None:
+    run_id: str,
+) -> Path:
     """Write a per-run manifest with resolved config and metadata."""
-    if not _is_rank_zero():
-        return
-
-    run_id = derive_run_id(
-        label=source.get("name") or source.get("path"),
-        run_id_override=run_id_override,
-    )
+    # Note: run_id is already derived and safe (shared across ranks if distributed)
+    
     run_root = runs_dir / run_id
     run_root.mkdir(parents=True, exist_ok=True)
     manifest_path = run_root / "manifest.yaml"
@@ -304,6 +316,8 @@ def _record_run_manifest(
             f"Warning: failed to write run manifest to {manifest_path}: {exc}",
             file=sys.stderr,
         )
+        
+    return manifest_path
 
 
 def _wants_help(argv: list[str]) -> bool:

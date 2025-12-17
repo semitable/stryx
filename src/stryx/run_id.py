@@ -1,4 +1,11 @@
-"""Run ID generation and normalization for Stryx."""
+"""Run ID generation and normalization for Stryx.
+
+Policy:
+1. User overrides (--run-id, STRYX_RUN_ID) take absolute precedence.
+2. Slurm Job ID (SLURM_JOB_ID) is trusted as a shared ID.
+3. If distributed environment detected (RANK set) and no ID found -> Error.
+4. Local fallback -> Timestamp + Petname.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +14,6 @@ import os
 import re
 import secrets
 from datetime import datetime, timezone
-from typing import Iterable
 
 logger = logging.getLogger("stryx.run_id")
 
@@ -41,115 +47,82 @@ def derive_run_id(
     label: str | None = None,
     run_id_override: str | None = None,
 ) -> str:
-    """Select or generate a run id with best-effort stability.
-
-    Priority:
-        1) User-provided run_id_override (flag) — conflicts with STRYX_RUN_ID.
-        2) STRYX_RUN_ID env var.
-        3) Launcher-provided IDs (TORCHELASTIC_RUN_ID, SLURM_JOB_ID, PBS_JOBID, LSB_JOBID).
-        4) Generated timestamped petname id (label, if provided, becomes a slug prefix).
-    """
-    env_run_id = os.getenv("STRYX_RUN_ID")
-    if run_id_override and env_run_id:
-        raise SystemExit("Cannot use --run-id and STRYX_RUN_ID together; pick one.")
-
+    """Select or generate a run id with strict distributed safety."""
+    
+    # 1. Explicit User Override
     if run_id_override:
-        normalized = _normalize(run_id_override)
-        if normalized != run_id_override:
-            logger.warning("--run-id contained unsupported characters; using normalized id: %s", normalized)
-        else:
-            logger.info("Using run id from --run-id: %s", normalized)
-        return normalized
+        return _validate_and_log(run_id_override, "user flag")
 
+    # 2. Environment Override
+    env_run_id = os.getenv("STRYX_RUN_ID")
     if env_run_id:
-        normalized = _normalize(env_run_id)
-        if normalized != env_run_id:
-            logger.warning("STRYX_RUN_ID contained unsupported characters; using normalized id: %s", normalized)
-        else:
-            logger.info("Using STRYX_RUN_ID from environment: %s", normalized)
-        return normalized
+        return _validate_and_log(env_run_id, "STRYX_RUN_ID")
 
-    launcher = _launcher_id()
-    if launcher:
-        value, source, severity = launcher
-        normalized = _normalize(value)
-        msg = f"Using {source} from environment for run id: {normalized}"
-        if severity == "warning":
-            logger.warning("%s (override with --run-id or STRYX_RUN_ID if this launcher runs multiple jobs).", msg)
-        else:
-            logger.info(msg)
-        return normalized
+    # 3. Slurm (Trusted Shared ID)
+    slurm_id = os.getenv("SLURM_JOB_ID")
+    if slurm_id:
+        task_id = os.getenv("SLURM_ARRAY_TASK_ID")
+        full_id = f"{slurm_id}_{task_id}" if task_id else slurm_id
+        return _validate_and_log(full_id, "SLURM_JOB_ID")
 
-    if _looks_distributed():
-        logger.warning(
-            "Distributed environment detected but no launcher run id found; run ids may diverge per rank. "
-            "Provide --run-id or STRYX_RUN_ID to enforce a shared id."
+    # 4. Distributed Safety Check
+    if _is_distributed_context():
+        # We detected distributed execution but found no shared ID source.
+        # We cannot safely auto-generate (ranks would diverge).
+        raise SystemExit(
+            "Error: Distributed environment detected but no shared Run ID found.\n"
+            "Stryx requires a consistent ID across all ranks.\n\n"
+            "Solution: Provide a run id explicitly.\n"
+            "  export STRYX_RUN_ID=$(stryx create-run-id)"
+            "  torchrun ...\n"
+            "\n"
+            "Or pass --run-id <id> to your script."
         )
 
-    run_id = _generate(label=label)
-    logger.info("Generated run id (petname): %s", run_id)
+    # 5. Local Fallback (Timestamp + Petname)
+    run_id = _generate_local_id(label)
+    logger.info(f"Generated local run id: {run_id}")
     return run_id
 
 
-def _launcher_id() -> tuple[str, str, str] | None:
-    """Return a launcher-provided id and its source."""
-    torchelastic = os.getenv("TORCHELASTIC_RUN_ID")
-    if torchelastic:
-        return torchelastic, "TORCHELASTIC_RUN_ID", "info"
-
-    slurm_job = os.getenv("SLURM_JOB_ID")
-    if slurm_job:
-        array_task = os.getenv("SLURM_ARRAY_TASK_ID")
-        label = f"{slurm_job}-{array_task}" if array_task else slurm_job
-        return label, "SLURM_JOB_ID", "warning"
-
-    for key in ("PBS_JOBID", "LSB_JOBID"):
-        value = os.getenv(key)
-        if value:
-            return value, key, "warning"
-
-    return None
+def _validate_and_log(raw_id: str, source: str) -> str:
+    """Normalize and log the selected ID."""
+    normalized = _normalize(raw_id)
+    if normalized != raw_id:
+        logger.warning(
+            f"Run ID from {source} contained unsupported characters. Normalized: '{raw_id}' -> '{normalized}'"
+        )
+    else:
+        logger.debug(f"Using run id from {source}: {normalized}")
+    return normalized
 
 
-def _looks_distributed() -> bool:
-    """Heuristic: check env vars set by common launchers."""
-    keys = (
-        "RANK",
-        "LOCAL_RANK",
-        "WORLD_SIZE",
-        "MASTER_ADDR",
-        "MASTER_PORT",
-        "TORCHELASTIC_RUN_ID",
-        "SLURM_JOB_ID",
-        "PBS_JOBID",
-        "LSB_JOBID",
-    )
-    return any(os.getenv(k) for k in keys)
+def _is_distributed_context() -> bool:
+    """Check if the environment looks distributed."""
+    # Only check standard rank variables. 
+    # We purposefully ignore TORCHELASTIC_RUN_ID as it can be unreliable/opaque.
+    dist_vars = ["RANK", "LOCAL_RANK", "PMI_RANK", "OMPI_COMM_WORLD_RANK"]
+    return any(os.getenv(k) is not None for k in dist_vars)
 
 
-def _generate(label: str | None) -> str:
-    """Generate a timestamped run id with a petname and optional label prefix."""
+def _generate_local_id(label: str | None) -> str:
+    """Generate a timestamped petname."""
     ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
     base = _petname()
     if label:
         base = f"{_normalize(label)}-{base}"
-
-    return f"run_{ts}_{base}"
+    return f"run_{{ts}}_{base}"
 
 
 def _normalize(raw: str) -> str:
     """Convert arbitrary text into a filesystem-friendly slug."""
-    cleaned = re.sub(r"[^A-Za-z0-9]+", "-", raw).strip("-").lower()
-    return cleaned[:64] or "run"
-
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", raw).strip("-")
+    return cleaned[:128] or "run"
 
 def _petname() -> str:
     """Generate a human-friendly petname."""
     try:
         import petname
-
-        return petname.Generate(2, separator="-")
-    except Exception:  # pragma: no cover - optional dependency failure
-        token = secrets.token_hex(2)
-        logger.warning("petname library unavailable; falling back to token '%s'", token)
-        return token
+        return petname.generate(2, separator="-")
+    except Exception:
+        return secrets.token_hex(2)

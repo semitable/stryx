@@ -48,4 +48,5 @@ Stryx advantages
 - Predictable overrides: dot-path CLI overrides map directly to model fields; provenance is shown by `show`.
 - Minimal surface: one decorator, a handful of commands; no global state, plugins, or hidden mutation.
 - Repro-friendly: defaults come from code, recipes are immutable snapshots, and sequential naming is lock-safe.
+- Execution Tracking: Automatically captures stdout, stderr, exceptions, and exit status in runs/<id>/manifest.yaml. Distributed-aware and safe.
 - Interop-first: pair with your logging/observability stack instead of being locked into one.

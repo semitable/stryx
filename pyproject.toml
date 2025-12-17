@@ -38,6 +38,7 @@ examples = [
 ]
 dev = [
     "pytest>=8.0",
+    "torch>=2.0.0",
 ]
 
 [build-system]
