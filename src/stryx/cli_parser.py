@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Literal
 
 # Reserved command names
-COMMANDS = frozenset({"run", "edit", "show", "list", "schema", "try", "fork", "diff"})
+COMMANDS = frozenset({"run", "edit", "show", "list", "schema", "try", "fork", "diff", "new"})
 
 
-Command = Literal["run", "edit", "show", "list", "help", "create-run-id", "schema", "try", "fork", "diff"]
+Command = Literal["run", "edit", "show", "list", "help", "create-run-id", "schema", "try", "fork", "diff", "new"]
 
 
 @dataclass
@@ -160,6 +160,27 @@ def parse_argv(argv: list[str]) -> ParsedArgs:
         return ParsedArgs(
             command="try",
             from_recipe=source,
+            overrides=overrides,
+            run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
+        )
+
+    # new [name] [overrides...]
+    if first == "new":
+        name: str | None = None
+        overrides: list[str] = []
+
+        i = 1
+        if i < len(argv) and "=" not in argv[i]:
+            name = argv[i]
+            i += 1
+
+        overrides = argv[i:]
+
+        return ParsedArgs(
+            command="new",
+            recipe=name,
             overrides=overrides,
             run_id_override=run_id_override,
             run_dir_override=run_dir_override,

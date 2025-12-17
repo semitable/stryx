@@ -63,6 +63,44 @@ def cmd_try(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
     return out_path
 
 
+def cmd_new(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
+    """Handle: new [name] [overrides...] - create from defaults."""
+    from filelock import FileLock
+
+    cfg = build_config(schema, args.overrides)
+
+    # Prepare payload
+    payload: dict[str, Any] = {
+        "__stryx__": {
+            "schema": f"{schema.__module__}:{schema.__name__}",
+            "created_at": datetime.now(tz=timezone.utc).isoformat(),
+            "type": "canonical",
+        }
+    }
+    if args.overrides:
+        payload["__stryx__"]["overrides"] = args.overrides
+    payload.update(cfg.model_dump(mode="python"))
+
+    # Create directory
+    recipes_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.recipe:
+        out_path = recipes_dir / f"{args.recipe}.yaml"
+        write_yaml(out_path, payload)
+        print(f"Created recipe: {out_path}")
+        return out_path
+
+    # Auto-generate name
+    lock_path = recipes_dir / ".stryx.lock"
+    with FileLock(lock_path):
+        name = _next_sequential_name(recipes_dir)
+        out_path = recipes_dir / f"{name}.yaml"
+        write_yaml(out_path, payload)
+
+    print(f"Created recipe: {out_path}")
+    return out_path
+
+
 def cmd_fork(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
     """Handle: fork <source> [name] [overrides...]"""
     from filelock import FileLock

@@ -36,7 +36,7 @@ from typing import Any, Callable, Literal, TypeVar, Union
 from pydantic import BaseModel, ValidationError
 
 from .cli_parser import ParsedArgs, parse_argv
-from .commands import cmd_diff, cmd_edit, cmd_fork, cmd_list, cmd_schema, cmd_show, cmd_try
+from .commands import cmd_diff, cmd_edit, cmd_fork, cmd_list, cmd_new, cmd_schema, cmd_show, cmd_try
 from .config_builder import (
     apply_override,
     build_config,
@@ -158,6 +158,9 @@ def _dispatch(
 
     if args.command == "fork":
         return cmd_fork(schema, effective_recipes_dir, args)
+
+    if args.command == "new":
+        return cmd_new(schema, effective_recipes_dir, args)
 
     if args.command == "edit":
         return cmd_edit(schema, effective_recipes_dir, args.recipe)
@@ -401,9 +404,10 @@ def _print_help(schema: type[BaseModel]) -> None:
     print(f"""Stryx - Typed Configuration Compiler
 
 Usage:
+  {prog} new [name] [overrides...]       Create fresh recipe (canonical)
+  {prog} fork <src> [name] [overrides]   Fork existing recipe (canonical)
   {prog} try [overrides...]              Run with overrides (saved to scratches)
   {prog} try [source] [overrides...]     Run variant of source (saved to scratches)
-  {prog} fork <src> [name] [overrides]   Fork/Branch a recipe (saved to configs/)
   {prog} run <name|path>                 Run recipe exactly (strict, no overrides)
   {prog} edit <name>                     Edit recipe (TUI)
   {prog} show [name|path] [overrides...] Show config with sources
@@ -420,9 +424,9 @@ Directories:
   --run-dir <path>           Override runs directory (or STRYX_RUN_DIR)
 
 Examples:
-  {prog} try lr=1e-4                     # Quick run (auto-saved)
-  {prog} try my_exp train.steps=50       # Experiment on top of my_exp
-  {prog} fork scratches/rapid-zebra best # Promote scratch to 'best'
+  {prog} new my_exp lr=1e-4              # Start fresh
+  {prog} try my_exp train.steps=50       # Experiment (scratch)
+  {prog} fork scratches/rapid-zebra best # Promote scratch
   {prog} run best                        # Reproduce exactly
   {prog} diff best defaults              # See what changed
   {prog} list                            # See all experiments
