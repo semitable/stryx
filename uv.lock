@@ -1711,6 +1711,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "torch" },
 ]
 examples = [
     { name = "trl" },
@@ -1725,6 +1726,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rapidfuzz", specifier = ">=3.0.0" },
+    { name = "torch", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "trl", marker = "extra == 'examples'", specifier = ">=0.26.1" },
 ]
 provides-extras = ["examples", "dev"]

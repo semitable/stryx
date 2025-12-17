@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Stryx artifacts
+configs/
+runs/
+.stryx.lock
