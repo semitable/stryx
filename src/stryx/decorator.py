@@ -36,7 +36,7 @@ from typing import Any, Callable, Literal, TypeVar, Union
 from pydantic import BaseModel, ValidationError
 
 from .cli_parser import ParsedArgs, parse_argv
-from .commands import cmd_edit, cmd_fork, cmd_list, cmd_schema, cmd_show, cmd_try
+from .commands import cmd_diff, cmd_edit, cmd_fork, cmd_list, cmd_schema, cmd_show, cmd_try
 from .config_builder import (
     apply_override,
     build_config,
@@ -152,6 +152,9 @@ def _dispatch(
 
     if args.command == "list":
         return cmd_list(effective_recipes_dir)
+
+    if args.command == "diff":
+        return cmd_diff(effective_recipes_dir, args)
 
     if args.command == "fork":
         return cmd_fork(schema, effective_recipes_dir, args)

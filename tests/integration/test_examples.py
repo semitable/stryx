@@ -66,6 +66,29 @@ class TestTrainExample:
         assert recipe["train"]["steps"] == 55
         assert recipe["__stryx__"]["type"] == "scratch"
 
+    def test_diff_command(self, tmp_path):
+        """diff shows differences between recipes."""
+        # Create base
+        run("train.py", ["fork", "defaults", "base", "train.steps=10"], cwd=tmp_path)
+        # Create variant
+        run("train.py", ["fork", "base", "variant", "train.steps=20", "optim.lr=0.5"], cwd=tmp_path)
+
+        result = run("train.py", ["diff", "base", "variant"], cwd=tmp_path)
+        assert result.returncode == 0
+        assert "train.steps: 10 -> 20" in result.stdout
+        # optim.lr changed from 3e-4 (default) to 0.5
+        assert "optim.lr: 0.0003 -> 0.5" in result.stdout or "optim.lr: 3.0e-04 -> 0.5" in result.stdout
+
+    def test_smart_list(self, tmp_path):
+        """list shows varying columns."""
+        run("train.py", ["fork", "defaults", "exp1", "train.steps=10"], cwd=tmp_path)
+        run("train.py", ["fork", "defaults", "exp2", "train.steps=20"], cwd=tmp_path)
+
+        result = run("train.py", ["list"], cwd=tmp_path)
+        assert "train.steps" in result.stdout  # Column header
+        assert "10" in result.stdout
+        assert "20" in result.stdout
+
     def test_recipe_workflow(self, tmp_path):
         """new -> list -> run -> show works and produces valid config."""
         # Create recipe with custom values

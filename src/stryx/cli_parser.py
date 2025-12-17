@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Literal
 
 # Reserved command names
-COMMANDS = frozenset({"run", "edit", "show", "list", "schema", "try", "fork"})
+COMMANDS = frozenset({"run", "edit", "show", "list", "schema", "try", "fork", "diff"})
 
 
-Command = Literal["run", "edit", "show", "list", "help", "create-run-id", "schema", "try", "fork"]
+Command = Literal["run", "edit", "show", "list", "help", "create-run-id", "schema", "try", "fork", "diff"]
 
 
 @dataclass
@@ -19,6 +19,7 @@ class ParsedArgs:
     recipe: str | None = None
     config_path: Path | None = None
     from_recipe: str | None = None
+    diff_other: str | None = None
     overrides: list[str] = field(default_factory=list)
     run_id_override: str | None = None
     recipes_dir_override: Path | None = None
@@ -226,6 +227,20 @@ def parse_argv(argv: list[str]) -> ParsedArgs:
             recipe=recipe,
             config_path=config_path,
             overrides=overrides,
+            run_id_override=run_id_override,
+            run_dir_override=run_dir_override,
+            recipes_dir_override=recipes_dir_override,
+        )
+
+    # diff <recipe_a> <recipe_b>
+    if first == "diff":
+        if len(argv) < 3:
+            raise SystemExit("'diff' requires two recipe names or paths")
+
+        return ParsedArgs(
+            command="diff",
+            recipe=argv[1],
+            diff_other=argv[2],
             run_id_override=run_id_override,
             run_dir_override=run_dir_override,
             recipes_dir_override=recipes_dir_override,

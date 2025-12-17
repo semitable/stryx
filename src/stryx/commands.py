@@ -17,7 +17,7 @@ from .config_builder import (
     validate_or_die,
 )
 from .schema import FieldInfo, extract_fields
-from .utils import read_yaml, write_yaml
+from .utils import flatten_config, read_yaml, write_yaml
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -30,24 +30,7 @@ def cmd_try(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
     # Resolve config
     from_path: Path | None = None
     if args.from_recipe:
-        # Check if source is a scratch (contains /) or canonical
-        name = args.from_recipe
-        if not name.endswith(".yaml"):
-            name += ".yaml"
-        
-        if "/" in name:
-             from_path = recipes_dir / name
-        else:
-             from_path = recipes_dir / name
-             
-        if not from_path.exists():
-            # If not found, check if it was a scratch name without prefix
-            scratch_path = recipes_dir / "scratches" / name
-            if scratch_path.exists():
-                from_path = scratch_path
-            else:
-                raise SystemExit(f"Source recipe not found: {args.from_recipe}")
-        
+        from_path = _resolve_recipe_path(recipes_dir, args.from_recipe)
         cfg = load_and_override(schema, from_path, args.overrides)
     else:
         cfg = build_config(schema, args.overrides)
@@ -92,23 +75,7 @@ def cmd_fork(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
         cfg = build_config(schema, args.overrides)
     else:
         # Fork from existing
-        name = args.from_recipe
-        if not name.endswith(".yaml"):
-            name += ".yaml"
-            
-        if "/" in name:
-             from_path = recipes_dir / name
-        else:
-             from_path = recipes_dir / name
-             
-        if not from_path.exists():
-             # Check scratches
-             scratch_path = recipes_dir / "scratches" / name
-             if scratch_path.exists():
-                 from_path = scratch_path
-             else:
-                 raise SystemExit(f"Source recipe not found: {args.from_recipe}")
-                 
+        from_path = _resolve_recipe_path(recipes_dir, args.from_recipe)
         cfg = load_and_override(schema, from_path, args.overrides)
 
     # Prepare payload
@@ -253,43 +220,80 @@ def cmd_show(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> None:
     )
 
 
+def cmd_diff(recipes_dir: Path, args: ParsedArgs) -> None:
+    """Handle: diff <recipe_a> <recipe_b>"""
+    # Load both configs
+    path_a = _resolve_recipe_path(recipes_dir, args.recipe)
+    path_b = _resolve_recipe_path(recipes_dir, args.diff_other)
+
+    cfg_a = read_config_file(path_a)
+    cfg_b = read_config_file(path_b)
+
+    # Strip metadata
+    if isinstance(cfg_a, dict):
+        cfg_a = {k: v for k, v in cfg_a.items() if not k.startswith("__")}
+    if isinstance(cfg_b, dict):
+        cfg_b = {k: v for k, v in cfg_b.items() if not k.startswith("__")}
+
+    flat_a = flatten_config(cfg_a)
+    flat_b = flatten_config(cfg_b)
+
+    all_keys = sorted(set(flat_a.keys()) | set(flat_b.keys()))
+
+    print(f"Diff: {args.recipe} vs {args.diff_other}")
+    print("-" * 60)
+
+    has_diff = False
+    for key in all_keys:
+        val_a = flat_a.get(key, _NOT_FOUND)
+        val_b = flat_b.get(key, _NOT_FOUND)
+
+        if val_a == val_b:
+            continue
+
+        has_diff = True
+        if val_a is _NOT_FOUND:
+            print(f"+ {key}: {val_b}")
+        elif val_b is _NOT_FOUND:
+            print(f"- {key}: {val_a}")
+        else:
+            print(f"~ {key}: {val_a} -> {val_b}")
+
+    if not has_diff:
+        print("No differences found.")
+
+
 def cmd_list(recipes_dir: Path) -> None:
-    """Handle: list - show all recipes in the recipes directory."""
+    """Handle: list - show all recipes in a smart table."""
     if not recipes_dir.exists():
         print(f"No recipes directory: {recipes_dir}")
         return
 
-    # Canonical
-    print("Experiments:")
-    print("-" * 60)
+    # Collect all recipes
     canonicals = sorted(recipes_dir.glob("*.yaml")) + sorted(recipes_dir.glob("*.yml"))
-    if canonicals:
-        _print_recipe_list(canonicals)
-    else:
-        print("  (none)")
-    print()
 
-    # Scratches
     scratches_dir = recipes_dir / "scratches"
+    scratches = []
     if scratches_dir.exists():
-        scratches = sorted(scratches_dir.glob("*.yaml"), reverse=True)  # Newest first
-        if scratches:
-            print("Scratches:")
-            print("-" * 60)
-            _print_recipe_list(scratches)
+        scratches = sorted(scratches_dir.glob("*.yaml"), reverse=True)
 
+    all_recipes = canonicals + scratches
+    if not all_recipes:
+        print("No recipes found.")
+        return
 
-def _print_recipe_list(recipes: list[Path]) -> None:
-    for recipe_path in recipes:
-        name = recipe_path.stem
+    # Load and flatten all
+    rows = []
+    all_keys = set()
 
-        # Try to get metadata
+    for p in all_recipes:
         try:
-            data = read_yaml(recipe_path)
+            data = read_config_file(p)
+            # Metadata
             meta = data.get("__stryx__", {}) if isinstance(data, dict) else {}
             created = meta.get("created_at", "")
+            # Shorten date
             if created:
-                # Parse and format date
                 try:
                     dt = datetime.fromisoformat(created)
                     date_str = dt.strftime("%Y-%m-%d %H:%M")
@@ -298,18 +302,59 @@ def _print_recipe_list(recipes: list[Path]) -> None:
             else:
                 date_str = ""
 
-            # Show if it was derived from another recipe
-            from_recipe = meta.get("from", "")
-            if from_recipe:
-                name = f"{name} (from: {from_recipe})"
+            # Clean data
+            if isinstance(data, dict):
+                clean = {k: v for k, v in data.items() if not k.startswith("__")}
+            else:
+                clean = {}
+
+            flat = flatten_config(clean)
+
+            # Identify row type
+            is_scratch = "scratches" in p.parts
+            name = f"scratches/{p.stem}" if is_scratch else p.stem
+
+            row = {"Name": name, "Created": date_str, **flat}
+            rows.append(row)
+            all_keys.update(flat.keys())
 
         except Exception:
-            date_str = ""
+            # Skip invalid files
+            continue
 
-        if date_str:
-            print(f"  {name:<40} {date_str}")
-        else:
-            print(f"  {name}")
+    # Identify interesting columns (variance > 1)
+    interesting_keys = []
+
+    for key in sorted(all_keys):
+        values = set()
+        for row in rows:
+            val = row.get(key)
+            # Make hashable
+            if isinstance(val, (list, dict)):
+                val = str(val)
+            values.add(val)
+
+        if len(values) > 1:
+            interesting_keys.append(key)
+
+    # Columns to display
+    columns = ["Name", "Created"] + interesting_keys
+
+    # Calculate widths
+    widths = {col: len(col) for col in columns}
+    for row in rows:
+        for col in columns:
+            val = str(row.get(col, ""))
+            widths[col] = max(widths[col], len(val))
+
+    # Header
+    header = "  ".join(f"{col:<{widths[col]}}" for col in columns)
+    print(header)
+    print("-" * len(header))
+
+    for row in rows:
+        line = "  ".join(f"{str(row.get(col, '')):<{widths[col]}}" for col in columns)
+        print(line)
 
 
 def cmd_schema(schema: type[T]) -> None:
@@ -393,6 +438,32 @@ def _format_field_lines(
         return [line, f"{indent}  # {description}"]
 
     return [line]
+
+
+def _resolve_recipe_path(recipes_dir: Path, name: str) -> Path:
+    if name.endswith(".yaml"):
+        p = recipes_dir / name
+    else:
+        p = recipes_dir / f"{name}.yaml"
+
+    if p.exists():
+        return p
+
+    # Try scratch
+    if name.endswith(".yaml"):
+        p = recipes_dir / "scratches" / name
+    else:
+        p = recipes_dir / "scratches" / f"{name}.yaml"
+    
+    if p.exists():
+        return p
+
+    # Try as path
+    p = Path(name)
+    if p.exists():
+        return p
+
+    raise SystemExit(f"Recipe not found: {name}")
 
 
 def _get_nested(data: dict[str, Any], path: list[str]) -> Any:

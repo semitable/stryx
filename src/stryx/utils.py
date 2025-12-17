@@ -135,3 +135,25 @@ def parse_like_yaml(text: str, fallback: Any) -> Any:
         return yaml.safe_load(stripped)
     except Exception:
         return text
+
+
+def flatten_config(data: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    """Recursively flatten a nested dictionary into dot-separated keys.
+
+    Note: Lists are treated as atomic values and not recursed into.
+
+    Args:
+        data: The dictionary to flatten.
+        prefix: Current key prefix.
+
+    Returns:
+        A flat dictionary where keys are dot-paths (e.g., "train.batch_size").
+    """
+    items = {}
+    for k, v in data.items():
+        key = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            items.update(flatten_config(v, key))
+        else:
+            items[key] = v
+    return items

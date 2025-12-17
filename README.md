@@ -19,7 +19,8 @@ Quick start
    - `uv run examples/train.py try train.steps=500` (runs variant)
 3) Manage recipes (strict reproducibility):
    - `uv run examples/train.py fork defaults my_exp optim.lr=1e-4` (create new recipe)
-   - `uv run examples/train.py list` (shows canonicals and scratches)
+   - `uv run examples/train.py list` (shows canonicals and scratches in a smart table)
+   - `uv run examples/train.py diff my_exp defaults` (compare recipes)
    - `uv run examples/train.py run my_exp` (runs exactly what is saved, no overrides)
    - `uv run examples/train.py show my_exp` (inspect values)
    - `uv run examples/train.py schema` (inspect schema)
@@ -27,7 +28,7 @@ Quick start
 
 CLI at a glance
 ---------------
-- `@stryx.cli(schema=Config, recipes_dir="configs")` wraps your entrypoint and adds commands: run (strict), try (scratchpad), fork (branch), show, list, edit, schema.
+- `@stryx.cli(schema=Config, recipes_dir="configs")` wraps your entrypoint and adds commands: run (strict), try (scratchpad), fork (branch), show, list, edit, schema, diff.
 - Overrides (`train.steps=1000`) are supported only in `try` and `fork` commands.
 - Recipes include a `__stryx__` block with schema, timestamp, lineage, and overrides for traceability.
 
