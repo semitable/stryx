@@ -401,14 +401,14 @@ def _print_help(schema: type[BaseModel]) -> None:
     print(f"""Stryx - Typed Configuration Compiler
 
 Usage:
-  {prog}                                 Run with defaults
-  {prog} <key>=<value> ...               Run with overrides
-  {prog} new [name] [overrides...]       Create recipe (auto-names if no name)
-  {prog} new [name] --from <src> [ov]    Copy + modify recipe
-  {prog} run <name|path> [overrides...]  Run from recipe or file
+  {prog} try [overrides...]              Run with overrides (saved to scratches)
+  {prog} try [source] [overrides...]     Run variant of source (saved to scratches)
+  {prog} fork <src> [name] [overrides]   Fork/Branch a recipe (saved to configs/)
+  {prog} run <name|path>                 Run recipe exactly (strict, no overrides)
   {prog} edit <name>                     Edit recipe (TUI)
   {prog} show [name|path] [overrides...] Show config with sources
-  {prog} list                            List all recipes
+  {prog} list                            List experiments (and scratches)
+  {prog} diff <A> <B>                    Compare two recipes
   {prog} schema                          Show configuration schema
   {prog} create-run-id [options]         Print a generated run id
 
@@ -420,10 +420,13 @@ Directories:
   --run-dir <path>           Override runs directory (or STRYX_RUN_DIR)
 
 Examples:
-  {prog} lr=1e-4 train.steps=1000
-  {prog} new my_exp lr=1e-4
-  {prog} run my_exp
-  {prog} show my_exp lr=1e-5             # See where values come from
+  {prog} try lr=1e-4                     # Quick run (auto-saved)
+  {prog} try my_exp train.steps=50       # Experiment on top of my_exp
+  {prog} fork scratches/rapid-zebra best # Promote scratch to 'best'
+  {prog} run best                        # Reproduce exactly
+  {prog} diff best defaults              # See what changed
+  {prog} list                            # See all experiments
+  {prog} show best                       # Inspect values
 
 Schema: {schema.__module__}:{schema.__name__} (use '{prog} schema' to inspect)
 """)
