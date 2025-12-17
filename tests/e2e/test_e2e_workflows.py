@@ -6,14 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-APP_FILE = Path(__file__).parent / "app.py"
 
-@pytest.fixture
-def app_script(tmp_path):
-    """Copies app.py to tmp_path."""
-    dest = tmp_path / "app.py"
-    shutil.copy(APP_FILE, dest)
-    return dest
 
 def run_torch(args, cwd):
     """Run command with torchrun using current python environment."""
