@@ -253,15 +253,15 @@ def parse_argv(argv: list[str]) -> ParsedArgs:
             recipes_dir_override=recipes_dir_override,
         )
 
-    # diff <recipe_a> <recipe_b>
+    # diff <recipe_a> [recipe_b]
     if first == "diff":
-        if len(argv) < 3:
-            raise SystemExit("'diff' requires two recipe names or paths")
+        if len(argv) < 2:
+            raise SystemExit("'diff' requires at least one recipe name")
 
         return ParsedArgs(
             command="diff",
             recipe=argv[1],
-            diff_other=argv[2],
+            diff_other=argv[2] if len(argv) > 2 else None,
             run_id_override=run_id_override,
             run_dir_override=run_dir_override,
             recipes_dir_override=recipes_dir_override,

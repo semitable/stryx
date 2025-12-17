@@ -258,14 +258,22 @@ def cmd_show(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> None:
     )
 
 
-def cmd_diff(recipes_dir: Path, args: ParsedArgs) -> None:
+def cmd_diff(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> None:
     """Handle: diff <recipe_a> <recipe_b>"""
     # Load both configs
     path_a = _resolve_recipe_path(recipes_dir, args.recipe)
-    path_b = _resolve_recipe_path(recipes_dir, args.diff_other)
-
     cfg_a = read_config_file(path_a)
-    cfg_b = read_config_file(path_b)
+
+    if args.diff_other:
+        path_b = _resolve_recipe_path(recipes_dir, args.diff_other)
+        cfg_b = read_config_file(path_b)
+        name_b = args.diff_other
+    else:
+        # Diff against defaults
+        cfg_b = build_config(schema, [])
+        # build_config returns a BaseModel, we need dict for consistency with read_config_file
+        cfg_b = cfg_b.model_dump(mode="python")
+        name_b = "(defaults)"
 
     # Strip metadata
     if isinstance(cfg_a, dict):
@@ -278,7 +286,7 @@ def cmd_diff(recipes_dir: Path, args: ParsedArgs) -> None:
 
     all_keys = sorted(set(flat_a.keys()) | set(flat_b.keys()))
 
-    print(f"Diff: {args.recipe} vs {args.diff_other}")
+    print(f"Diff: {args.recipe} vs {name_b}")
     print("-" * 60)
 
     has_diff = False

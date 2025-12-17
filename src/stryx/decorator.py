@@ -154,7 +154,7 @@ def _dispatch(
         return cmd_list(effective_recipes_dir)
 
     if args.command == "diff":
-        return cmd_diff(effective_recipes_dir, args)
+        return cmd_diff(schema, effective_recipes_dir, args)
 
     if args.command == "fork":
         return cmd_fork(schema, effective_recipes_dir, args)
@@ -412,7 +412,7 @@ Usage:
   {prog} edit <name>                     Edit recipe (TUI)
   {prog} show [name|path] [overrides...] Show config with sources
   {prog} list                            List experiments (and scratches)
-  {prog} diff <A> <B>                    Compare two recipes
+  {prog} diff <A> [B]                    Compare two recipes (or vs defaults)
   {prog} schema                          Show configuration schema
   {prog} create-run-id [options]         Print a generated run id
 
@@ -428,7 +428,7 @@ Examples:
   {prog} try my_exp train.steps=50       # Experiment (scratch)
   {prog} fork scratches/rapid-zebra best # Promote scratch
   {prog} run best                        # Reproduce exactly
-  {prog} diff best defaults              # See what changed
+  {prog} diff best                       # See what changed vs defaults
   {prog} list                            # See all experiments
   {prog} show best                       # Inspect values
 
