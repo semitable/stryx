@@ -40,6 +40,11 @@ dev = [
     "pytest>=8.0",
     "torch>=2.0.0",
 ]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.6,<0.10.0"]
