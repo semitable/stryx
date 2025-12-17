@@ -219,7 +219,8 @@ def _dispatch(
         run_id_override=args.run_id_override,
     )
 
-    is_rank_zero = _is_rank_zero()
+    rank = _get_rank()
+    is_rank_zero = (rank == 0)
     manifest_path = None
 
     if is_rank_zero:
@@ -235,7 +236,7 @@ def _dispatch(
     if not manifest_path:
         manifest_path = effective_runs_dir / run_id / "manifest.yaml"
 
-    with RunContext(manifest_path, is_rank_zero) as ctx:
+    with RunContext(manifest_path, rank) as ctx:
         result = func(cfg)
         ctx.record_result(result)
         return result
@@ -251,19 +252,17 @@ def _dispatch(
 
 
 
-def _is_rank_zero() -> bool:
-    """Check if the current process is rank 0 (leader) in a distributed run.
-
-    Checks common environment variables from torchrun, SLURM, MPI, etc.
-    """
-    # Standard rank variables
-    for env_var in ("RANK", "LOCAL_RANK", "SLURM_PROCID", "OMPI_COMM_WORLD_RANK"):
-        val = os.getenv(env_var)
+def _get_rank() -> int:
+    """Get current process rank (0 if not distributed)."""
+    for var in ("RANK", "LOCAL_RANK", "SLURM_PROCID", "OMPI_COMM_WORLD_RANK"):
+        val = os.getenv(var)
         if val is not None:
-            return int(val) == 0
+            return int(val)
+    return 0
 
-    # Default to True if no distributed env detected
-    return True
+
+def _is_rank_zero() -> bool:
+    return _get_rank() == 0
 
 
 def _record_run_manifest(

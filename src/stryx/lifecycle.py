@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 from datetime import datetime, timezone
@@ -21,7 +22,7 @@ class TeeStream:
         self.file.write(data)
         self.file.flush()  # Ensure logs are written immediately
 
-    def flush(self) -> None:
+    def flush(self, ) -> None:
         self.original.flush()
         self.file.flush()
 
@@ -32,48 +33,61 @@ class TeeStream:
 class RunContext:
     """Manages execution lifecycle: logging, status updates, and result capture."""
 
-    def __init__(self, manifest_path: Path, is_rank_zero: bool):
+    def __init__(self, manifest_path: Path, rank: int):
         self.manifest_path = manifest_path
-        self.is_rank_zero = is_rank_zero
+        self.rank = rank
         self.log_file: TextIO | None = None
         self.old_stdout: TextIO | None = None
         self.old_stderr: TextIO | None = None
 
     def __enter__(self) -> RunContext:
-        if not self.is_rank_zero:
-            return self
+        # Determine log path
+        run_root = self.manifest_path.parent
+        is_distributed = os.getenv("WORLD_SIZE") is not None
 
-        # Ensure directory exists (it should, but be safe)
-        self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        if is_distributed:
+            log_dir = run_root / "logs"
+            try:
+                log_dir.mkdir(parents=True, exist_ok=True)
+            except FileExistsError:
+                pass  # Race condition safety
+            log_path = log_dir / f"rank_{self.rank}.log"
+        else:
+            # Single process - simple log in root
+            run_root.mkdir(parents=True, exist_ok=True)
+            log_path = run_root / "stdout.log"
 
-        # Open log file
-        log_path = self.manifest_path.parent / "stdout.log"
         self.log_file = open(log_path, "w", encoding="utf-8")
 
         # Setup Tee
         self.old_stdout = sys.stdout
         self.old_stderr = sys.stderr
         
-        # Redirect both stdout and stderr to the same log file for a unified timeline
         sys.stdout = TeeStream(self.old_stdout, self.log_file) # type: ignore
         sys.stderr = TeeStream(self.old_stderr, self.log_file) # type: ignore
 
-        # Initial status
-        self._update_manifest(
-            status="RUNNING",
-            started_at=datetime.now(tz=timezone.utc).isoformat()
-        )
+        # Initial status (only rank 0)
+        if self.rank == 0:
+            self._update_manifest(
+                status="RUNNING",
+                started_at=datetime.now(tz=timezone.utc).isoformat()
+            )
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        if not self.is_rank_zero:
-            return
-
         # Restore streams
         if self.old_stdout:
             sys.stdout = self.old_stdout
         if self.old_stderr:
             sys.stderr = self.old_stderr
+
+        # Close log
+        if self.log_file:
+            self.log_file.close()
+
+        # Update manifest (only rank 0)
+        if self.rank != 0:
+            return
 
         if exc_type:
             # Job Failed
@@ -88,18 +102,15 @@ class RunContext:
             # If successful exit
             self._update_manifest(finished_at=datetime.now(tz=timezone.utc).isoformat())
 
-        if self.log_file:
-            self.log_file.close()
-
     def record_result(self, result: Any) -> None:
         """Record the execution result and mark as COMPLETED."""
-        if not self.is_rank_zero:
+        if self.rank != 0:
             return
             
         self._update_manifest(
             status="COMPLETED",
             result=result,
-            # finished_at is handled in __exit__
+            # We don't set finished_at here because __exit__ will handle it
         )
 
     def _update_manifest(self, **kwargs: Any) -> None:
