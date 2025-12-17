@@ -211,6 +211,21 @@ def _config_source(args: ParsedArgs, recipes_dir: Path) -> dict[str, Any]:
     return {"kind": "defaults", "name": None, "path": None}
 
 
+def _is_rank_zero() -> bool:
+    """Check if the current process is rank 0 (leader) in a distributed run.
+
+    Checks common environment variables from torchrun, SLURM, MPI, etc.
+    """
+    # Standard rank variables
+    for env_var in ("RANK", "LOCAL_RANK", "SLURM_PROCID", "OMPI_COMM_WORLD_RANK"):
+        val = os.getenv(env_var)
+        if val is not None:
+            return int(val) == 0
+
+    # Default to True if no distributed env detected
+    return True
+
+
 def _record_run_manifest(
     schema: type[BaseModel],
     cfg: BaseModel,
@@ -220,6 +235,9 @@ def _record_run_manifest(
     run_id_override: str | None,
 ) -> None:
     """Write a per-run manifest with resolved config and metadata."""
+    if not _is_rank_zero():
+        return
+
     run_id = derive_run_id(
         label=source.get("name") or source.get("path"),
         run_id_override=run_id_override,

@@ -20,11 +20,12 @@ Quick start
    - `uv run examples/train.py list`
    - `uv run examples/train.py run my_exp`
    - `uv run examples/train.py show my_exp` (annotates values with their source)
+   - `uv run examples/train.py schema` (inspects configuration schema)
 4) Edit interactively: `uv run examples/train.py edit my_exp` opens the TUI editor.
 
 CLI at a glance
 ---------------
-- `@stryx.cli(schema=Config, recipes_dir="configs")` wraps your entrypoint and adds commands: run (default), new, run <recipe|path>, show, list, edit.
+- `@stryx.cli(schema=Config, recipes_dir="configs")` wraps your entrypoint and adds commands: run (default), new, run <recipe|path>, show, list, edit, schema.
 - Overrides use dot paths: `train.steps=1000` or `optim.lr=3e-4`.
 - Recipes include a `__stryx__` block with schema, timestamp, lineage, and overrides for traceability.
 
