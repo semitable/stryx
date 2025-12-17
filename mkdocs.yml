@@ -1,0 +1,44 @@
+site_name: Stryx
+site_description: Typed configuration compiler for ML experiments
+site_url: https://github.com/fchristianos/stryx
+repo_url: https://github.com/fchristianos/stryx
+repo_name: fchristianos/stryx
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      accent: purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.expand
+    - navigation.instant
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+
+nav:
+  - Home: index.md
+  - Core Workflow: workflow.md
+  - Features:
+    - Configuration: features/configuration.md
+    - CLI Reference: features/cli.md
+    - Experiment Tracking: features/tracking.md
+  - Advanced:
+    - Distributed Training: advanced/distributed.md
+    - Best Practices: advanced/recipes.md
+  - API Reference: api.md
