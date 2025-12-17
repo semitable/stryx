@@ -33,6 +33,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - Tutorial: tutorial.md
   - Core Workflow: workflow.md
   - Features:
     - Configuration: features/configuration.md
