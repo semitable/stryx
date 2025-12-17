@@ -18,12 +18,16 @@ class ConfigManager:
         self.schema = schema
         self.file_path = file_path
         self.introspector = SchemaIntrospector(schema)
+        self.metadata: dict[str, Any] = {}
         self.data = self._load_or_init()
 
     def _load_or_init(self) -> dict[str, Any]:
         """Load config from file, or initialize with schema defaults."""
         if self.file_path.exists():
             data = read_yaml(self.file_path)
+            # Extract metadata if present
+            if isinstance(data, dict) and "__stryx__" in data:
+                self.metadata = data.pop("__stryx__")
         else:
             # Initialize with defaults from schema for new configs
             data = self._build_defaults_dict()
@@ -104,7 +108,12 @@ class ConfigManager:
         if not is_valid:
             raise ValueError(error)
 
-        write_yaml(self.file_path, self.data)
+        to_save = dict(self.data)
+        if self.metadata:
+            # Put metadata at the top
+            to_save = {"__stryx__": self.metadata, **to_save}
+
+        write_yaml(self.file_path, to_save)
 
     def get_at(self, path: FieldPath) -> Any:
         """Get value at the given path, returning None if path doesn't exist."""
