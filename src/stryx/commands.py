@@ -126,24 +126,24 @@ def cmd_run(ctx: Ctx, ns: argparse.Namespace) -> Any:
 def cmd_try(ctx: Ctx, ns: argparse.Namespace) -> Any:
     """Handle: try [target] [overrides...] - run experimental variant."""
     import petname
-
-    recipe_token = ns.target
+    
+    target_token = ns.target
     overrides = ns.overrides
-
-    # If recipe token looks like an override (contains '='), shift it
-    if recipe_token and "=" in recipe_token:
-        overrides = [recipe_token] + overrides
-        recipe_token = None
-
+    
+    # If target token looks like an override (contains '='), shift it
+    if target_token and "=" in target_token:
+        overrides = [target_token] + overrides
+        target_token = None
+        
     # Resolve source
-    if recipe_token:
+    if target_token:
         try:
-            from_path = resolve_recipe_path(ctx.configs_dir, recipe_token)
+            from_path = resolve_recipe_path(ctx.configs_dir, target_token)
             cfg = load_and_override(ctx.schema, from_path, overrides)
-            lineage = recipe_token
+            lineage = target_token
             name_label = from_path.stem
         except FileNotFoundError:
-            raise SystemExit(f"Source recipe not found: {recipe_token}")
+            raise SystemExit(f"Source recipe not found: {target_token}")
     else:
         cfg = build_config(ctx.schema, overrides)
         lineage = None

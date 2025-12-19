@@ -38,7 +38,7 @@ def test_run_basic(ctx):
     cmd_new(ctx, argparse.Namespace(recipe="base", overrides=["value=10"], message=None, force=False))
     
     # 2. Execute run
-    ns = argparse.Namespace(target="base")
+    ns = argparse.Namespace(target="base", run_id=None)
     result = cmd_run(ctx, ns)
     
     assert result == "success_result"
@@ -55,9 +55,18 @@ def test_run_basic(ctx):
     assert (run_dir / "manifest.yaml").exists()
     assert (run_dir / "stdout.log").exists()
 
-def test_try_from_defaults(ctx):
+def test_run_with_id(ctx):
+    """Test 'run' with explicit --run-id."""
+    cmd_new(ctx, argparse.Namespace(recipe="base", overrides=[], message=None, force=False))
+    
+    ns = argparse.Namespace(target="base", run_id="my-custom-id")
+    cmd_run(ctx, ns)
+    
+    assert (ctx.runs_dir / "my-custom-id" / "manifest.yaml").exists()
+
+def test_try_defaults(ctx):
     """Test 'try' starting from schema defaults."""
-    ns = argparse.Namespace(recipe=None, overrides=["value=42"], message=None)
+    ns = argparse.Namespace(target=None, overrides=["value=42"], message=None, run_id=None)
     result = cmd_try(ctx, ns)
     
     assert result == "success_result"
@@ -76,7 +85,7 @@ def test_try_from_recipe(ctx):
     cmd_new(ctx, argparse.Namespace(recipe="base", overrides=["value=10"], message=None, force=False))
     
     # try base value=20
-    ns = argparse.Namespace(recipe="base", overrides=["value=20"])
+    ns = argparse.Namespace(target="base", overrides=["value=20"], message="Experiment 1", run_id=None)
     result = cmd_try(ctx, ns)
     
     assert result == "success_result"
@@ -87,11 +96,12 @@ def test_try_from_recipe(ctx):
     scratches = list((ctx.configs_dir / "scratches").glob("*.yaml"))
     data = read_yaml(scratches[0])
     assert data["__stryx__"]["from"] == "base"
+    assert data["__stryx__"]["description"] == "Experiment 1"
 
 def test_try_implicit_overrides(ctx):
     """Test 'try' when the first argument is an override (no recipe name)."""
     # try value=50
-    ns = argparse.Namespace(recipe="value=50", overrides=[])
+    ns = argparse.Namespace(target="value=50", overrides=[], message=None, run_id=None)
     result = cmd_try(ctx, ns)
     
     assert result == "success_result"
@@ -100,7 +110,7 @@ def test_try_implicit_overrides(ctx):
 
 def test_run_error_missing_recipe(ctx):
     """Test that 'run' fails gracefully if recipe not found."""
-    ns = argparse.Namespace(target="nonexistent")
+    ns = argparse.Namespace(target="nonexistent", run_id=None)
     with pytest.raises(SystemExit) as exc:
         cmd_run(ctx, ns)
     assert "Recipe not found" in str(exc.value)
@@ -111,7 +121,7 @@ def test_run_error_invalid_recipe(ctx):
     recipe_path = ctx.configs_dir / "invalid.yaml"
     write_yaml(recipe_path, {"value": "not-an-int", "__stryx__": {}})
     
-    ns = argparse.Namespace(target="invalid")
+    ns = argparse.Namespace(target="invalid", run_id=None)
     with pytest.raises(SystemExit) as exc:
         cmd_run(ctx, ns)
     assert "Config validation failed" in str(exc.value)

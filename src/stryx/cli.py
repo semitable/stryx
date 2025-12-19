@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_new.add_argument("overrides", nargs=argparse.REMAINDER)
     p_new.set_defaults(handler=cmd_new)
 
-    # try [recipe] -- overrides...
+    # try [target] -- overrides...
     p_try = sub.add_parser("try")
     p_try.add_argument("target", nargs="?")
     p_try.add_argument("--run-id", help="Explicitly set run id")
