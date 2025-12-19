@@ -21,6 +21,7 @@ def ctx(tmp_path):
         schema=Config,
         configs_dir=tmp_path / "configs",
         runs_dir=tmp_path / "runs",
+        func=lambda x: None,
     )
 
 

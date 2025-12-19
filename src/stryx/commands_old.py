@@ -39,7 +39,7 @@ def cmd_try(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
     # petname generate(2) gives "adjective-animal"
     name = f"{timestamp}_{petname.generate(2)}"
-    
+
     scratches_dir = recipes_dir / "scratches"
     scratches_dir.mkdir(parents=True, exist_ok=True)
     out_path = scratches_dir / f"{name}.yaml"
@@ -107,7 +107,7 @@ def cmd_fork(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> Path:
 
     # Resolve config
     from_path: Path | None = None
-    
+
     if not args.from_recipe or args.from_recipe == "defaults":
         # Fork from defaults
         cfg = build_config(schema, args.overrides)
@@ -179,8 +179,7 @@ def cmd_edit(schema: type[T], recipes_dir: Path, name: str) -> None:
     if not recipe_path.exists():
         # Offer to create it
         raise SystemExit(
-            f"Recipe not found: {recipe_path}\n"
-            f"Create it first with: new {name}"
+            f"Recipe not found: {recipe_path}\nCreate it first with: new {name}"
         )
 
     tui = PydanticConfigTUI(schema, recipe_path)
@@ -188,7 +187,7 @@ def cmd_edit(schema: type[T], recipes_dir: Path, name: str) -> None:
 
 
 def cmd_show(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> None:
-    """Handle: show [recipe] [--config path] [overrides...] 
+    """Handle: show [recipe] [--config path] [overrides...]
 
     Pretty-prints the config with source annotations showing where each value
     comes from: (default), (recipe), or (override ← previous_value).
@@ -212,7 +211,9 @@ def cmd_show(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> None:
         recipe_data = read_config_file(source_file)
         # Strip metadata
         if isinstance(recipe_data, dict):
-            recipe_data = {k: v for k, v in recipe_data.items() if not k.startswith("__")}
+            recipe_data = {
+                k: v for k, v in recipe_data.items() if not k.startswith("__")
+            }
         source_name = source_file.stem if recipe_path else source_file.name
 
     # Build the config data (before validation, to track sources)
@@ -240,7 +241,9 @@ def cmd_show(schema: type[T], recipes_dir: Path, args: ParsedArgs) -> None:
     if source_name != "defaults":
         header_parts.append(f"recipe: {source_name}")
     if args.overrides:
-        header_parts.append(f"{len(args.overrides)} override{'s' if len(args.overrides) > 1 else ''}")
+        header_parts.append(
+            f"{len(args.overrides)} override{'s' if len(args.overrides) > 1 else ''}"
+        )
     if len(header_parts) > 1:
         print(f"{header_parts[0]} ({', '.join(header_parts[1:])})")
     else:
@@ -447,7 +450,11 @@ def cmd_schema(schema: type[T]) -> None:
             # Child lines (strip the group prefix for readability)
             for child in children:
                 child_path = child.path
-                label = child_path[len(group) + 1 :] if child_path.startswith(f"{group}.") else child_path
+                label = (
+                    child_path[len(group) + 1 :]
+                    if child_path.startswith(f"{group}.")
+                    else child_path
+                )
                 for line in _format_field_lines(
                     indent="    ",
                     label=label,
@@ -500,7 +507,7 @@ def _resolve_recipe_path(recipes_dir: Path, name: str) -> Path:
         p = recipes_dir / "scratches" / name
     else:
         p = recipes_dir / "scratches" / f"{name}.yaml"
-    
+
     if p.exists():
         return p
 
@@ -587,7 +594,9 @@ def _print_with_sources(
 
         if isinstance(value, dict):
             print(f"{pad}{key}:")
-            _print_with_sources(value, defaults, recipe, override_info, path, indent + 1)
+            _print_with_sources(
+                value, defaults, recipe, override_info, path, indent + 1
+            )
         else:
             # Get source annotation
             source = _get_source(path, value, defaults, recipe, override_info)

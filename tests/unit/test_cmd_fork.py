@@ -23,6 +23,7 @@ def ctx(tmp_path):
         schema=Config,
         configs_dir=configs_dir,
         runs_dir=tmp_path / "runs",
+        func=lambda x: None,
     )
 
 def test_fork_basic(ctx):

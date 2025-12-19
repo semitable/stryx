@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import os
+import platform
+import subprocess
 import sys
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, TYPE_CHECKING
 
 from .utils import read_yaml, write_yaml
+
+if TYPE_CHECKING:
+    from .context import Ctx
 
 
 class TeeStream:
@@ -126,3 +132,114 @@ class RunContext:
         except Exception:
             # Don't crash the run just because we couldn't update status
             pass
+
+
+def get_rank() -> int:
+    """Get current process rank (0 if not distributed)."""
+    for var in ("RANK", "LOCAL_RANK", "SLURM_PROCID", "OMPI_COMM_WORLD_RANK"):
+        val = os.getenv(var)
+        if val is not None:
+            return int(val)
+    return 0
+
+
+def record_run_manifest(
+    ctx: Ctx,
+    cfg: Any,
+    run_id: str,
+    source: dict[str, Any],
+    overrides: list[str],
+) -> Path:
+    """Write a per-run manifest with resolved config and metadata."""
+    run_root = ctx.runs_dir / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    manifest_path = run_root / "manifest.yaml"
+    resolved_path = run_root / "config.yaml"
+
+    patch_path = _write_git_patch(run_root)
+
+    # Write resolved config
+    try:
+        write_yaml(resolved_path, cfg.model_dump(mode="python"))
+    except Exception as exc:
+        print(f"Warning: failed to write resolved config: {exc}", file=sys.stderr)
+
+    manifest = {
+        "run_id": run_id,
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        "schema": f"{ctx.schema.__module__}:{ctx.schema.__name__}",
+        "config_source": source,
+        "overrides": overrides or [],
+        "config": cfg.model_dump(mode="python"),
+        "resolved_config_path": str(resolved_path),
+        "git": _git_info(),
+        "python": {"version": platform.python_version()},
+        "uv": {"lock_hash": _uv_lock_hash()},
+    }
+    manifest["git"]["untracked"] = _git_untracked_files()
+    if patch_path:
+        manifest["git"]["patch_file"] = str(patch_path)
+
+    try:
+        write_yaml(manifest_path, manifest)
+    except Exception as exc:
+        print(f"Warning: failed to write run manifest: {exc}", file=sys.stderr)
+        
+    return manifest_path
+
+
+def _run_cmd(cmd: list[str], timeout: float = 2.0) -> str | None:
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _git_info() -> dict[str, Any]:
+    sha = _run_cmd(["git", "rev-parse", "HEAD"])
+    dirty = False
+    if sha:
+        status = _run_cmd(["git", "status", "--porcelain"])
+        dirty = bool(status)
+    return {"sha": sha, "dirty": dirty}
+
+def _git_untracked_files() -> list[str]:
+    if not _run_cmd(["git", "rev-parse", "--is-inside-work-tree"]):
+        return []
+    output = _run_cmd(["git", "ls-files", "--others", "--exclude-standard"])
+    if not output:
+        return []
+    return [line for line in output.splitlines() if line.strip()]
+
+def _uv_lock_hash(lock_path: Path | None = None) -> str | None:
+    path = lock_path or Path("uv.lock")
+    if not path.exists():
+        return None
+    hasher = hashlib.sha256()
+    try:
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(8192), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    except OSError:
+        return None
+
+def _write_git_patch(run_root: Path) -> Path | None:
+    if not _run_cmd(["git", "rev-parse", "--is-inside-work-tree"]):
+        return None
+    patch = _run_cmd(["git", "diff", "--patch", "HEAD"])
+    if not patch:
+        return None
+    out_path = run_root / "git.patch"
+    try:
+        out_path.write_text(patch + "\n", encoding="utf-8")
+        return out_path
+    except OSError:
+        return None

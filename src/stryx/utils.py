@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,50 @@ def write_yaml(path: Path, data: Any) -> None:
     txt = yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
     tmp_path.write_text(txt, encoding="utf-8")
     tmp_path.replace(path)
+
+
+def save_recipe(
+    path: Path,
+    cfg_data: dict[str, Any],
+    schema_cls: type,
+    overrides: list[str],
+    kind: str = "canonical",  # "canonical" or "scratch"
+    source: str | None = None,
+    description: str | None = None,
+    force: bool = False,
+) -> None:
+    """Construct metadata and write recipe to file.
+
+    Args:
+        path: Destination path.
+        cfg_data: Dictionary dump of the configuration.
+        schema_cls: The schema class (for metadata).
+        overrides: List of overrides applied.
+        kind: Recipe type ("canonical" or "scratch").
+        source: Optional source lineage string.
+        description: Optional description.
+        force: If True, overwrite existing file.
+
+    Raises:
+        FileExistsError: If path exists and force is False.
+    """
+    if path.exists() and not force:
+        raise FileExistsError(f"Recipe '{path}' already exists.")
+
+    meta = {
+        "schema": f"{schema_cls.__module__}:{schema_cls.__name__}",
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        "type": kind,
+        "overrides": overrides,
+    }
+    if source:
+        meta["from"] = source
+    if description:
+        meta["description"] = description
+
+    payload = {"__stryx__": meta, **cfg_data}
+
+    write_yaml(path, payload)
 
 
 # ============================================================================

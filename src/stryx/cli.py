@@ -6,15 +6,14 @@ from typing import Any, Callable
 from pydantic import BaseModel
 
 from stryx.context import Ctx
-from stryx.commands import cmd_new, cmd_fork
+from stryx.commands import cmd_new, cmd_fork, cmd_run, cmd_try
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="stryx")
-    # global overrides (no manual scanning loop)
+    # global options
     p.add_argument("--runs-dir", dest="runs_dir", type=Path)
     p.add_argument("--configs-dir", dest="configs_dir", type=Path)
-    # add your run-id options here too
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -38,14 +37,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     # try [recipe] -- overrides...
     p_try = sub.add_parser("try")
-    p_try.add_argument("recipe", nargs="?")
+    p_try.add_argument("target", nargs="?")
+    p_try.add_argument("--run-id", help="Explicitly set run id")
+    p_try.add_argument("-m", "--message", help="Description for scratch metadata")
     p_try.add_argument("overrides", nargs=argparse.REMAINDER)
-    p_try.set_defaults(handler=cmd_list_configs)
+    p_try.set_defaults(handler=cmd_try)
 
     # run <recipe|path>
     p_run = sub.add_parser("run")
     p_run.add_argument("target")
-    p_run.set_defaults(handler=cmd_list_configs)
+    p_run.add_argument("--run-id", help="Explicitly set run id")
+    p_run.set_defaults(handler=cmd_run)
 
     # fork <source> <name> -- overrides...
     p_fork = sub.add_parser("fork")
@@ -55,8 +57,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_fork.add_argument("--force", action="store_true", help="Overwrite existing recipe")
     p_fork.add_argument("overrides", nargs=argparse.REMAINDER)
     p_fork.set_defaults(handler=cmd_fork)
-
-    # ... add edit/show/diff/schema/new similarly
 
     return p
 
@@ -94,8 +94,11 @@ def cmd_list_configs(ctx: Ctx, ns: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     dispatch(
-        ctx=Ctx(schema=BaseModel, configs_dir=Path("configs/"), runs_dir=Path("runs/")),
+        ctx=Ctx(
+            schema=BaseModel, 
+            configs_dir=Path("configs/"), 
+            runs_dir=Path("runs/"),
+            func=lambda x: print(f"Running with {x}")
+        ),
         argv=sys.argv[1:],
     )
-    parser = build_parser()
-    ns = parser.parse_args(sys.argv[1:])
