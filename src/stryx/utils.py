@@ -15,6 +15,7 @@ FieldPath = tuple[str | int, ...]
 # YAML File I/O
 # ============================================================================
 
+
 def read_yaml(path: Path) -> Any:
     """Read and parse a YAML file.
 
@@ -48,6 +49,7 @@ def write_yaml(path: Path, data: Any) -> None:
 # ============================================================================
 # Nested Data Access
 # ============================================================================
+
 
 def get_nested(data: dict[str, Any], path: FieldPath) -> Any:
     """Get value at a nested path, returning None if path doesn't exist.
@@ -157,3 +159,69 @@ def flatten_config(data: dict[str, Any], prefix: str = "") -> dict[str, Any]:
         else:
             items[key] = v
     return items
+
+
+# ============================================================================
+# Path Utilities
+# ============================================================================
+
+
+def get_next_sequential_name(
+    directory: Path, prefix: str = "exp", extension: str = "yaml"
+) -> str:
+    """Find next sequential name (e.g., exp_001, exp_002) in a directory."""
+    existing = list(directory.glob(f"{prefix}_*.{extension}"))
+    numbers = []
+    for p in existing:
+        try:
+            # exp_001.yaml -> 1
+            num = int(p.stem.split("_")[1])
+            numbers.append(num)
+        except (IndexError, ValueError):
+            continue
+
+    next_num = max(numbers, default=0) + 1
+    return f"{prefix}_{next_num:03d}"
+
+
+def resolve_recipe_path(configs_dir: Path, name: str) -> Path:
+    """Find recipe file by name (trying extensions, scratches, etc).
+
+    Args:
+        configs_dir: The root directory for configurations.
+        name: The name or path of the recipe to find.
+
+    Returns:
+        Path object if found.
+
+    Raises:
+        FileNotFoundError: If the recipe cannot be found.
+    """
+    # 1. Exact path
+    p = Path(name)
+    if p.exists():
+        return p
+
+    # 2. Relative to configs_dir
+    p = configs_dir / name
+    if p.exists():
+        return p
+
+    # 3. Try extensions
+    for ext in [".yaml", ".yml"]:
+        p = configs_dir / f"{name}{ext}"
+        if p.exists():
+            return p
+
+    # 4. Try scratches
+    scratches = configs_dir / "scratches"
+    if scratches.exists():
+        p = scratches / name
+        if p.exists():
+            return p
+        for ext in [".yaml", ".yml"]:
+            p = scratches / f"{name}{ext}"
+            if p.exists():
+                return p
+
+    raise FileNotFoundError(f"Source recipe not found: {name}")

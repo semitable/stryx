@@ -19,6 +19,7 @@ Commands:
     train.py show [name|path] [overrides...] Show config with sources
     train.py list                            List all recipes
 """
+
 from __future__ import annotations
 
 import functools
@@ -36,7 +37,8 @@ from typing import Any, Callable, Literal, TypeVar, Union
 from pydantic import BaseModel, ValidationError
 
 from .cli_parser import ParsedArgs, parse_argv
-from .commands import cmd_diff, cmd_edit, cmd_fork, cmd_list, cmd_new, cmd_schema, cmd_show, cmd_try
+
+# from .commands import cmd_diff, cmd_edit, cmd_fork, cmd_list, cmd_new, cmd_schema, cmd_show, cmd_try
 from .config_builder import (
     apply_override,
     build_config,
@@ -50,8 +52,6 @@ from .run_id import derive_run_id, parse_run_id_options
 from .utils import read_yaml, set_dotpath, write_yaml
 
 T = TypeVar("T", bound=BaseModel)
-
-
 
 
 def cli(
@@ -133,8 +133,12 @@ def _dispatch(
 ) -> Any:
     """Parse argv and dispatch to appropriate handler."""
     args = parse_argv(argv)
-    effective_runs_dir = Path(args.run_dir_override or os.getenv("STRYX_RUN_DIR") or runs_dir)
-    effective_recipes_dir = Path(args.recipes_dir_override or os.getenv("STRYX_CONFIGS_DIR") or recipes_dir)
+    effective_runs_dir = Path(
+        args.run_dir_override or os.getenv("STRYX_RUN_DIR") or runs_dir
+    )
+    effective_recipes_dir = Path(
+        args.recipes_dir_override or os.getenv("STRYX_CONFIGS_DIR") or recipes_dir
+    )
 
     if args.command == "create-run-id":
         if _wants_help(argv):
@@ -220,7 +224,7 @@ def _dispatch(
     )
 
     rank = _get_rank()
-    is_rank_zero = (rank == 0)
+    is_rank_zero = rank == 0
     manifest_path = None
 
     if is_rank_zero:
@@ -242,14 +246,9 @@ def _dispatch(
         return result
 
 
-
-
-
 # =============================================================================
 # Run Manifest
 # =============================================================================
-
-
 
 
 def _get_rank() -> int:
@@ -275,7 +274,7 @@ def _record_run_manifest(
 ) -> Path:
     """Write a per-run manifest with resolved config and metadata."""
     # Note: run_id is already derived and safe (shared across ranks if distributed)
-    
+
     run_root = runs_dir / run_id
     run_root.mkdir(parents=True, exist_ok=True)
     manifest_path = run_root / "manifest.yaml"
@@ -286,7 +285,9 @@ def _record_run_manifest(
     # Write resolved config to its own file for reproducibility
     try:
         write_yaml(resolved_path, cfg.model_dump(mode="python"))
-    except Exception as exc:  # pragma: no cover - avoid failing user runs on write issues
+    except (
+        Exception
+    ) as exc:  # pragma: no cover - avoid failing user runs on write issues
         print(
             f"Warning: failed to write resolved config to {resolved_path}: {exc}",
             file=sys.stderr,
@@ -310,12 +311,14 @@ def _record_run_manifest(
 
     try:
         write_yaml(manifest_path, manifest)
-    except Exception as exc:  # pragma: no cover - avoid failing user runs on manifest write issues
+    except (
+        Exception
+    ) as exc:  # pragma: no cover - avoid failing user runs on manifest write issues
         print(
             f"Warning: failed to write run manifest to {manifest_path}: {exc}",
             file=sys.stderr,
         )
-        
+
     return manifest_path
 
 
@@ -401,14 +404,9 @@ def _python_version() -> str:
     return platform.python_version()
 
 
-
-
-
 # =============================================================================
 # Help
 # =============================================================================
-
-
 
 
 def _print_help(schema: type[BaseModel]) -> None:
