@@ -12,7 +12,11 @@ from stryx.commands import (
     cmd_run, 
     cmd_try, 
     cmd_list_configs, 
-    cmd_list_runs
+    cmd_list_runs,
+    cmd_edit,
+    cmd_show,
+    cmd_diff,
+    cmd_schema
 )
 
 
@@ -64,6 +68,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_fork.add_argument("--force", action="store_true", help="Overwrite existing recipe")
     p_fork.add_argument("overrides", nargs=argparse.REMAINDER)
     p_fork.set_defaults(handler=cmd_fork)
+
+    # edit <recipe>
+    p_edit = sub.add_parser("edit")
+    p_edit.add_argument("recipe")
+    p_edit.set_defaults(handler=cmd_edit)
+
+    # show [recipe] [--config path] [overrides...]
+    p_show = sub.add_parser("show")
+    p_show.add_argument("recipe", nargs="?")
+    p_show.add_argument("--config", dest="config_path", type=Path)
+    p_show.add_argument("overrides", nargs=argparse.REMAINDER)
+    p_show.set_defaults(handler=cmd_show)
+
+    # diff <recipe_a> [recipe_b]
+    p_diff = sub.add_parser("diff")
+    p_diff.add_argument("recipe_a")
+    p_diff.add_argument("recipe_b", nargs="?")
+    p_diff.set_defaults(handler=cmd_diff)
+
+    # schema
+    p_schema = sub.add_parser("schema")
+    p_schema.set_defaults(handler=cmd_schema)
 
     return p
 
