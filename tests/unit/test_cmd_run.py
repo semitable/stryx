@@ -125,3 +125,22 @@ def test_run_error_invalid_recipe(ctx):
     with pytest.raises(SystemExit) as exc:
         cmd_run(ctx, ns)
     assert "Config validation failed" in str(exc.value)
+
+def test_run_exception_propagation(ctx):
+    """Test that exceptions from the user function propagate out of cmd_run."""
+    cmd_new(ctx, argparse.Namespace(recipe="base", overrides=[], message=None, force=False))
+    
+    # Make func fail
+    ctx.func.side_effect = ValueError("User code failed")
+    
+    ns = argparse.Namespace(target="base", run_id=None)
+    
+    with pytest.raises(ValueError, match="User code failed"):
+        cmd_run(ctx, ns)
+    
+    # Verify manifest status is FAILED (RunContext handles this on exit)
+    # We need to find the run directory
+    run_dir = list(ctx.runs_dir.glob("run_*"))[0]
+    data = read_yaml(run_dir / "manifest.yaml")
+    assert data["status"] == "FAILED"
+    assert "User code failed" in data["error"]

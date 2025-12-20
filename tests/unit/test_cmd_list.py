@@ -70,3 +70,20 @@ def test_list_runs(ctx, capsys):
     assert "run_2" in captured.out
     assert "FAILED" in captured.out
     assert "100" in captured.out # interesting column
+
+def test_list_configs_resilience(ctx, capsys):
+    """Test that listing configs skips bad files gracefully."""
+    # Good file
+    cmd_new(ctx, argparse.Namespace(recipe="good", overrides=[], message=None, force=False))
+    
+    # Bad file
+    bad_path = ctx.configs_dir / "bad.yaml"
+    bad_path.write_text(":: invalid yaml ::")
+    
+    cmd_list_configs(ctx, argparse.Namespace())
+    
+    captured = capsys.readouterr()
+    assert "good" in captured.out
+    # Should run without error and not show 'bad' (or show it with limited info, implementation skips)
+    # The implementation catches Exception and 'continue's loop.
+    assert "bad" not in captured.out

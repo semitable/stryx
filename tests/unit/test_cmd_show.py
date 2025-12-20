@@ -58,3 +58,17 @@ def test_show_defaults(ctx, capsys):
     captured = capsys.readouterr()
     assert 'value: 1' in captured.out
     assert '(default)' in captured.out
+
+def test_show_explicit_path(ctx, capsys):
+    """Test showing a config from an explicit path."""
+    # Create a file manually (simulating external config)
+    path = ctx.configs_dir / "external.yaml"
+    from stryx.utils import write_yaml
+    write_yaml(path, {"value": 55})
+    
+    ns = argparse.Namespace(recipe=None, overrides=[], config_path=path)
+    cmd_show(ctx, ns)
+    
+    captured = capsys.readouterr()
+    assert 'value: 55' in captured.out
+    assert 'recipe: external' in captured.out

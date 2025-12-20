@@ -368,23 +368,28 @@ def cmd_show(ctx: Ctx, ns: argparse.Namespace) -> None:
     source_name = "defaults"
     recipe_data: dict[str, Any] | None = None
     
-    # Check if a config path was provided explicitly (ns.config_path?)
-    # Or if ns.recipe/target was provided.
-    # The new CLI uses 'target' for run/try, but 'recipe' for edit/show/new/fork?
-    # Let's check CLI args in a bit. Assuming 'recipe' for now.
-    
-    target = getattr(ns, "recipe", None) or getattr(ns, "target", None)
-    
-    if target:
-        try:
-            path = resolve_recipe_path(ctx.configs_dir, target)
-            recipe_data = read_config_file(path)
-            # Strip metadata
-            if isinstance(recipe_data, dict):
-                recipe_data = {k: v for k, v in recipe_data.items() if not k.startswith("__")}
-            source_name = path.stem
-        except FileNotFoundError:
-             raise SystemExit(f"Config not found: {target}")
+    # Check if a config path was provided explicitly
+    path_arg = getattr(ns, "config_path", None)
+    if path_arg:
+        if not path_arg.exists():
+            raise SystemExit(f"Config not found: {path_arg}")
+        path = path_arg
+    else:
+        # Fallback to recipe/target name
+        target = getattr(ns, "recipe", None) or getattr(ns, "target", None)
+        path = None
+        if target:
+            try:
+                path = resolve_recipe_path(ctx.configs_dir, target)
+            except FileNotFoundError:
+                raise SystemExit(f"Config not found: {target}")
+
+    if path:
+        recipe_data = read_config_file(path)
+        # Strip metadata
+        if isinstance(recipe_data, dict):
+            recipe_data = {k: v for k, v in recipe_data.items() if not k.startswith("__")}
+        source_name = path.stem
 
     # Build the config data (before validation, to track sources)
     if recipe_data is not None:
