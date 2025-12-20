@@ -1,7 +1,6 @@
 from __future__ import annotations
 import argparse
 import pytest
-from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 from stryx.context import Ctx
 from stryx.commands import cmd_schema

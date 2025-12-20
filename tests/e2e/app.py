@@ -1,5 +1,4 @@
 import os
-import sys
 from pydantic import BaseModel
 import stryx
 

@@ -28,9 +28,34 @@ Usage:
 from __future__ import annotations
 
 import dataclasses
+import types
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel, Field, create_model
+
+# Core decorator API
+from .decorator import cli
+
+# TUI (for direct use)
+from .tui import launch_tui, PydanticConfigTUI
+
+# Schema introspection
+from .schema import extract_fields, FieldInfo, SchemaIntrospector
+
+# Config management
+from .config import ConfigManager
+
+# Utilities
+from .utils import (
+    FieldPath,
+    path_to_str,
+    parse_like_yaml,
+    read_yaml,
+    write_yaml,
+    get_nested,
+    set_nested,
+    set_dotpath,
+)
 
 __version__ = "0.1.0"
 
@@ -148,8 +173,6 @@ def from_dataclass(dc: type) -> type[BaseModel]:
 
 def _convert_type(field_type: Any) -> Any:
     """Recursively convert dataclass types within a type annotation."""
-    import types
-
     # Direct dataclass
     if dataclasses.is_dataclass(field_type) and isinstance(field_type, type):
         return from_dataclass(field_type)
@@ -182,29 +205,6 @@ def _convert_type(field_type: Any) -> Any:
 
     return field_type
 
-# Core decorator API
-from .decorator import cli
-
-# TUI (for direct use)
-from .tui import launch_tui, PydanticConfigTUI
-
-# Schema introspection
-from .schema import extract_fields, FieldInfo, SchemaIntrospector
-
-# Config management
-from .config import ConfigManager
-
-# Utilities
-from .utils import (
-    FieldPath,
-    path_to_str,
-    parse_like_yaml,
-    read_yaml,
-    write_yaml,
-    get_nested,
-    set_nested,
-    set_dotpath,
-)
 
 __all__ = [
     "__version__",

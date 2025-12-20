@@ -1,7 +1,7 @@
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from pydantic import BaseModel
 

@@ -5,7 +5,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
 from pydantic import BaseModel, Field
 
 import stryx

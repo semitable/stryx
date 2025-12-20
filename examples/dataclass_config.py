@@ -79,7 +79,7 @@ def train(cfg: Config) -> None:
     print(f"Eval config: {cfg.eval_config}")
     print()
     print(f"Config type: {type(cfg).__name__}")
-    print(f"(Pydantic model converted from dataclass)")
+    print("(Pydantic model converted from dataclass)")
 
 
 # =============================================================================

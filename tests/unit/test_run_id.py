@@ -1,5 +1,4 @@
 """Tests for run_id derivation logic."""
-import os
 import pytest
 from stryx.run_id import derive_run_id
 

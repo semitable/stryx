@@ -1,11 +1,9 @@
-import shutil
 import subprocess
 import sys
 import os
-from pathlib import Path
 import pytest
 import yaml
-
+import importlib.util
 
 
 def run_torch(args, cwd):
@@ -15,9 +13,7 @@ def run_torch(args, cwd):
 
 def test_distributed_failure_no_id(app_script, tmp_path):
     """Fails if torchrun used without shared ID."""
-    try:
-        import torch
-    except ImportError:
+    if not importlib.util.find_spec("torch"):
         pytest.skip("torch not installed")
 
     # Run 'try' without explicit ID
@@ -29,9 +25,7 @@ def test_distributed_failure_no_id(app_script, tmp_path):
 
 def test_distributed_success_with_id(app_script, tmp_path):
     """Succeeds if ID provided via --run-id."""
-    try:
-        import torch
-    except ImportError:
+    if not importlib.util.find_spec("torch"):
         pytest.skip("torch not installed")
 
     run_id = "dist_test_01"
@@ -65,9 +59,7 @@ def test_distributed_success_with_id(app_script, tmp_path):
 
 def test_lifecycle_failure(app_script, tmp_path):
     """Captures exception in manifest on crash."""
-    try:
-        import torch
-    except ImportError:
+    if not importlib.util.find_spec("torch"):
         pytest.skip("torch not installed")
 
     run_id = "crash_test"

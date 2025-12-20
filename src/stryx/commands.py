@@ -1,6 +1,5 @@
 import argparse
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,11 +16,11 @@ from stryx.lifecycle import RunContext, get_rank, record_run_manifest
 from stryx.run_id import derive_run_id
 from stryx.schema import FieldInfo, extract_fields
 from stryx.utils import (
-    get_next_sequential_name,
-    resolve_recipe_path,
     flatten_config,
+    get_next_sequential_name,
+    read_yaml,
+    resolve_recipe_path,
     save_recipe,
-    read_yaml
 )
 
 
@@ -104,7 +103,7 @@ def cmd_fork(ctx: Ctx, ns: argparse.Namespace) -> Path:
             description=getattr(ns, "message", None),
             force=getattr(ns, "force", False),
             kind="canonical",
-            source=str(ns.source)
+            source=str(ns.source),
         )
     except FileExistsError as e:
         raise SystemExit(f"Error: {e} Use --force to overwrite.")
@@ -135,15 +134,15 @@ def cmd_run(ctx: Ctx, ns: argparse.Namespace) -> Any:
 def cmd_try(ctx: Ctx, ns: argparse.Namespace) -> Any:
     """Handle: try [target] [overrides...] - run experimental variant."""
     import petname
-    
+
     target_token = ns.target
     overrides = ns.overrides
-    
+
     # If target token looks like an override (contains '='), shift it
     if target_token and "=" in target_token:
         overrides = [target_token] + overrides
         target_token = None
-        
+
     # Resolve source
     if target_token:
         try:
@@ -223,7 +222,9 @@ def cmd_list_configs(ctx: Ctx, ns: argparse.Namespace) -> None:
         return
 
     # Collect all recipes
-    canonicals = sorted(ctx.configs_dir.glob("*.yaml")) + sorted(ctx.configs_dir.glob("*.yml"))
+    canonicals = sorted(ctx.configs_dir.glob("*.yaml")) + sorted(
+        ctx.configs_dir.glob("*.yml")
+    )
 
     scratches_dir = ctx.configs_dir / "scratches"
     scratches = []
@@ -244,7 +245,7 @@ def cmd_list_configs(ctx: Ctx, ns: argparse.Namespace) -> None:
             meta = data.get("__stryx__", {}) if isinstance(data, dict) else {}
             created = meta.get("created_at", "")
             if created:
-                created = created[:16].replace("T", " ") # Simplified ISO format
+                created = created[:16].replace("T", " ")  # Simplified ISO format
 
             # Clean data for interesting columns
             if isinstance(data, dict):
@@ -253,10 +254,10 @@ def cmd_list_configs(ctx: Ctx, ns: argparse.Namespace) -> None:
                 clean = {}
 
             flat = flatten_config(clean)
-            
+
             is_scratch = "scratches" in p.parts
             name = f"scratches/{p.stem}" if is_scratch else p.stem
-            
+
             row = {"Name": name, "Created": created, **flat}
             rows.append(row)
             all_keys.update(flat.keys())
@@ -276,22 +277,24 @@ def cmd_list_runs(ctx: Ctx, ns: argparse.Namespace) -> None:
     all_keys = set()
 
     for p in ctx.runs_dir.iterdir():
-        if not p.is_dir(): continue
+        if not p.is_dir():
+            continue
         manifest_path = p / "manifest.yaml"
-        if not manifest_path.exists(): continue
-        
+        if not manifest_path.exists():
+            continue
+
         try:
             data = read_yaml(manifest_path)
-            
+
             # Extract key info
             run_id = data.get("run_id", p.name)
             status = data.get("status", "UNKNOWN")
             created = data.get("created_at", "")[:16].replace("T", " ")
-            
+
             # Config subset?
             config = data.get("config", {})
             flat_cfg = flatten_config(config)
-            
+
             row = {"Run ID": run_id, "Status": status, "Created": created, **flat_cfg}
             rows.append(row)
             all_keys.update(flat_cfg.keys())
@@ -300,11 +303,13 @@ def cmd_list_runs(ctx: Ctx, ns: argparse.Namespace) -> None:
 
     # Sort by created desc
     rows.sort(key=lambda x: x.get("Created", ""), reverse=True)
-    
+
     _print_smart_table(rows, ["Run ID", "Status", "Created"], all_keys)
 
 
-def _print_smart_table(rows: list[dict], fixed_cols: list[str], potential_cols: set[str]) -> None:
+def _print_smart_table(
+    rows: list[dict], fixed_cols: list[str], potential_cols: set[str]
+) -> None:
     """Print a table with fixed columns + interesting variant columns."""
     if not rows:
         print("No items.")
@@ -345,7 +350,7 @@ def cmd_edit(ctx: Ctx, ns: argparse.Namespace) -> None:
 
     # Use ns.recipe if present, or ns.target if repurposed (but edit has recipe arg)
     name = ns.recipe
-    
+
     try:
         recipe_path = resolve_recipe_path(ctx.configs_dir, name)
     except FileNotFoundError:
@@ -368,17 +373,19 @@ def cmd_show(ctx: Ctx, ns: argparse.Namespace) -> None:
     # Determine source file
     source_name = "defaults"
     recipe_data: dict[str, Any] | None = None
-    
+
     if ns.target:
         try:
             path = resolve_recipe_path(ctx.configs_dir, ns.target)
             recipe_data = read_config_file(path)
             # Strip metadata
             if isinstance(recipe_data, dict):
-                recipe_data = {k: v for k, v in recipe_data.items() if not k.startswith("__")}
+                recipe_data = {
+                    k: v for k, v in recipe_data.items() if not k.startswith("__")
+                }
             source_name = path.stem
         except FileNotFoundError:
-             raise SystemExit(f"Config not found: {ns.target}")
+            raise SystemExit(f"Config not found: {ns.target}")
 
     # Build the config data (before validation, to track sources)
     if recipe_data is not None:
@@ -405,7 +412,9 @@ def cmd_show(ctx: Ctx, ns: argparse.Namespace) -> None:
     if source_name != "defaults":
         header_parts.append(f"recipe: {source_name}")
     if ns.overrides:
-        header_parts.append(f"{len(ns.overrides)} override{'s' if len(ns.overrides) > 1 else ''}")
+        header_parts.append(
+            f"{len(ns.overrides)} override{'s' if len(ns.overrides) > 1 else ''}"
+        )
     if len(header_parts) > 1:
         print(f"{header_parts[0]} ({', '.join(header_parts[1:])})")
     else:
@@ -460,7 +469,7 @@ def cmd_diff(ctx: Ctx, ns: argparse.Namespace) -> None:
     print("-" * 60)
 
     has_diff = False
-    
+
     for key in all_keys:
         val_a = flat_a.get(key, _NOT_FOUND)
         val_b = flat_b.get(key, _NOT_FOUND)
@@ -528,7 +537,11 @@ def cmd_schema(ctx: Ctx, ns: argparse.Namespace) -> None:
             # Child lines (strip the group prefix for readability)
             for child in children:
                 child_path = child.path
-                label = child_path[len(group) + 1 :] if child_path.startswith(f"{group}.") else child_path
+                label = (
+                    child_path[len(group) + 1 :]
+                    if child_path.startswith(f"{group}.")
+                    else child_path
+                )
                 for line in _format_field_lines(
                     indent="    ",
                     label=label,
@@ -546,11 +559,12 @@ def cmd_schema(ctx: Ctx, ns: argparse.Namespace) -> None:
         print()
 
 
-# ============================================================================ 
+# ============================================================================
 # Helpers
-# ============================================================================ 
+# ============================================================================
 
 _NOT_FOUND = object()
+
 
 def _get_nested(data: dict[str, Any], path: list[str]) -> Any:
     """Get nested value from dict, returns _NOT_FOUND if not present."""
@@ -645,7 +659,9 @@ def _print_with_sources(
 
         if isinstance(value, dict):
             print(f"{pad}{key}:")
-            _print_with_sources(value, defaults, recipe, override_info, path, indent + 1)
+            _print_with_sources(
+                value, defaults, recipe, override_info, path, indent + 1
+            )
         else:
             source = _get_source(path, value, defaults, recipe, override_info)
             val_str = _format_value(value)

@@ -1,9 +1,7 @@
 from __future__ import annotations
 import argparse
 import pytest
-from datetime import datetime
-from pathlib import Path
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 from stryx.context import Ctx
 from stryx.commands import cmd_new, cmd_fork
 from stryx.utils import read_yaml, write_yaml
