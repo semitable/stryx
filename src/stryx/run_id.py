@@ -111,7 +111,7 @@ def _generate_local_id(label: str | None) -> str:
     base = _petname()
     if label:
         base = f"{_normalize(label)}-{base}"
-    return f"run_{{ts}}_{base}"
+    return f"run_{ts}_{base}"
 
 
 def _normalize(raw: str) -> str:
