@@ -466,7 +466,6 @@ def cmd_diff(ctx: Ctx, ns: argparse.Namespace) -> None:
     print("-" * 60)
 
     has_diff = False
-    _NOT_FOUND = object()
     
     for key in all_keys:
         val_a = flat_a.get(key, _NOT_FOUND)
