@@ -26,7 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--runs-dir", dest="runs_dir", type=Path)
     p.add_argument("--configs-dir", dest="configs_dir", type=Path)
 
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=False)
+    p.set_defaults(handler=lambda ctx, ns: p.print_help())
 
     # list <configs|runs>
     p_list = sub.add_parser(

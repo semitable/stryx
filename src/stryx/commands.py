@@ -46,8 +46,8 @@ def cmd_new(ctx: Ctx, ns: argparse.Namespace) -> Path:
                 cfg_data=cfg_data,
                 schema_cls=ctx.schema,
                 overrides=ns.overrides,
-                description=ns.message,
-                force=ns.force,
+                description=getattr(ns, "message", None),
+                force=getattr(ns, "force", False),
                 kind="canonical",
             )
         else:
@@ -62,7 +62,7 @@ def cmd_new(ctx: Ctx, ns: argparse.Namespace) -> Path:
                     cfg_data=cfg_data,
                     schema_cls=ctx.schema,
                     overrides=ns.overrides,
-                    description=ns.message,
+                    description=getattr(ns, "message", None),
                     force=False,
                     kind="canonical",
                 )
@@ -100,10 +100,10 @@ def cmd_fork(ctx: Ctx, ns: argparse.Namespace) -> Path:
             cfg_data=cfg_data,
             schema_cls=ctx.schema,
             overrides=ns.overrides,
-            description=ns.message,
-            force=ns.force,
+            description=getattr(ns, "message", None),
+            force=getattr(ns, "force", False),
             kind="canonical",
-            source=str(ns.source),
+            source=str(ns.source)
         )
     except FileExistsError as e:
         raise SystemExit(f"Error: {e} Use --force to overwrite.")
@@ -173,7 +173,7 @@ def cmd_try(ctx: Ctx, ns: argparse.Namespace) -> Any:
         overrides=overrides,
         kind="scratch",
         source=lineage,
-        description=ns.message,
+        description=getattr(ns, "message", None),
         force=False,
     )
 
