@@ -356,7 +356,7 @@ def cmd_edit(ctx: Ctx, ns: argparse.Namespace) -> None:
 
 
 def cmd_show(ctx: Ctx, ns: argparse.Namespace) -> None:
-    """Handle: show [recipe] [--config path] [overrides...]"""
+    """Handle: show [target] [overrides...]"""
     # Get schema defaults
     try:
         defaults_instance = ctx.schema()
@@ -368,28 +368,16 @@ def cmd_show(ctx: Ctx, ns: argparse.Namespace) -> None:
     source_name = "defaults"
     recipe_data: dict[str, Any] | None = None
     
-    # Check if a config path was provided explicitly
-    path_arg = getattr(ns, "config_path", None)
-    if path_arg:
-        if not path_arg.exists():
-            raise SystemExit(f"Config not found: {path_arg}")
-        path = path_arg
-    else:
-        # Fallback to recipe/target name
-        target = getattr(ns, "recipe", None) or getattr(ns, "target", None)
-        path = None
-        if target:
-            try:
-                path = resolve_recipe_path(ctx.configs_dir, target)
-            except FileNotFoundError:
-                raise SystemExit(f"Config not found: {target}")
-
-    if path:
-        recipe_data = read_config_file(path)
-        # Strip metadata
-        if isinstance(recipe_data, dict):
-            recipe_data = {k: v for k, v in recipe_data.items() if not k.startswith("__")}
-        source_name = path.stem
+    if ns.target:
+        try:
+            path = resolve_recipe_path(ctx.configs_dir, ns.target)
+            recipe_data = read_config_file(path)
+            # Strip metadata
+            if isinstance(recipe_data, dict):
+                recipe_data = {k: v for k, v in recipe_data.items() if not k.startswith("__")}
+            source_name = path.stem
+        except FileNotFoundError:
+             raise SystemExit(f"Config not found: {ns.target}")
 
     # Build the config data (before validation, to track sources)
     if recipe_data is not None:

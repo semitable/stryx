@@ -74,10 +74,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_edit.add_argument("recipe")
     p_edit.set_defaults(handler=cmd_edit)
 
-    # show [recipe] [--config path] [overrides...]
+    # show [target] [overrides...]
     p_show = sub.add_parser("show")
-    p_show.add_argument("recipe", nargs="?")
-    p_show.add_argument("--config", dest="config_path", type=Path)
+    p_show.add_argument("target", nargs="?")
     p_show.add_argument("overrides", nargs=argparse.REMAINDER)
     p_show.set_defaults(handler=cmd_show)
 

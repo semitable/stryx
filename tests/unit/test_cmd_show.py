@@ -28,7 +28,7 @@ def test_show_basic(ctx, capsys):
     cmd_new(ctx, argparse.Namespace(recipe="base", overrides=["value=10"], message=None, force=False))
     
     # Show it
-    ns = argparse.Namespace(recipe="base", overrides=[], config_path=None)
+    ns = argparse.Namespace(target="base", overrides=[])
     cmd_show(ctx, ns)
     
     captured = capsys.readouterr()
@@ -42,7 +42,7 @@ def test_show_with_overrides(ctx, capsys):
     cmd_new(ctx, argparse.Namespace(recipe="base", overrides=["value=10"], message=None, force=False))
     
     # Show with override
-    ns = argparse.Namespace(recipe="base", overrides=["value=99"], config_path=None)
+    ns = argparse.Namespace(target="base", overrides=["value=99"])
     cmd_show(ctx, ns)
     
     captured = capsys.readouterr()
@@ -52,7 +52,7 @@ def test_show_with_overrides(ctx, capsys):
 
 def test_show_defaults(ctx, capsys):
     """Test showing defaults (no recipe)."""
-    ns = argparse.Namespace(recipe=None, overrides=[], config_path=None)
+    ns = argparse.Namespace(target=None, overrides=[])
     cmd_show(ctx, ns)
     
     captured = capsys.readouterr()
@@ -66,7 +66,8 @@ def test_show_explicit_path(ctx, capsys):
     from stryx.utils import write_yaml
     write_yaml(path, {"value": 55})
     
-    ns = argparse.Namespace(recipe=None, overrides=[], config_path=path)
+    # Pass path as target
+    ns = argparse.Namespace(target=str(path), overrides=[])
     cmd_show(ctx, ns)
     
     captured = capsys.readouterr()
