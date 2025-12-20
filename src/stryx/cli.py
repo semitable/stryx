@@ -6,7 +6,14 @@ from typing import Any, Callable
 from pydantic import BaseModel
 
 from stryx.context import Ctx
-from stryx.commands import cmd_new, cmd_fork, cmd_run, cmd_try
+from stryx.commands import (
+    cmd_new, 
+    cmd_fork, 
+    cmd_run, 
+    cmd_try, 
+    cmd_list_configs, 
+    cmd_list_runs
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_list_runs = sub_list.add_parser("runs")
     p_list_runs.add_argument("--status", default="any", choices=["any", "ok", "failed"])
-    p_list_runs.set_defaults(handler=cmd_list_configs)
+    p_list_runs.set_defaults(handler=cmd_list_runs)
 
     p_new = sub.add_parser("new")
     p_new.add_argument("recipe", nargs="?")
@@ -80,16 +87,6 @@ def dispatch(ctx: Ctx, argv: list[str]) -> Any:
         ns.overrides = normalize_overrides(ns.overrides)
 
     return ns.handler(ctx, ns)
-
-
-def cmd_list_configs(ctx: Ctx, ns: argparse.Namespace) -> int:
-    if not ctx.configs_dir.exists():
-        print(f"(no configs dir) {ctx.configs_dir}", file=sys.stderr)
-        return 1
-
-    for p in sorted(ctx.configs_dir.glob("*.y*ml")):
-        print(p.stem)
-    return 0
 
 
 if __name__ == "__main__":

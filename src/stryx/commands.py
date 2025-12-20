@@ -13,6 +13,7 @@ from stryx.utils import (
     resolve_recipe_path,
     flatten_config,
     save_recipe,
+    read_yaml
 )
 
 
@@ -205,3 +206,126 @@ def _execute(
         result = ctx.func(cfg)
         run_ctx.record_result(result)
         return result
+
+
+def cmd_list_configs(ctx: Ctx, ns: argparse.Namespace) -> None:
+    """Handle: list configs - show all recipes in a smart table."""
+    if not ctx.configs_dir.exists():
+        print(f"No recipes found in {ctx.configs_dir}")
+        return
+
+    # Collect all recipes
+    canonicals = sorted(ctx.configs_dir.glob("*.yaml")) + sorted(ctx.configs_dir.glob("*.yml"))
+
+    scratches_dir = ctx.configs_dir / "scratches"
+    scratches = []
+    if scratches_dir.exists():
+        scratches = sorted(scratches_dir.glob("*.yaml"), reverse=True)
+
+    all_recipes = canonicals + scratches
+    if not all_recipes:
+        print("No recipes found.")
+        return
+
+    rows = []
+    all_keys = set()
+
+    for p in all_recipes:
+        try:
+            data = read_yaml(p)
+            meta = data.get("__stryx__", {}) if isinstance(data, dict) else {}
+            created = meta.get("created_at", "")
+            if created:
+                created = created[:16].replace("T", " ") # Simplified ISO format
+
+            # Clean data for interesting columns
+            if isinstance(data, dict):
+                clean = {k: v for k, v in data.items() if not k.startswith("__")}
+            else:
+                clean = {}
+
+            flat = flatten_config(clean)
+            
+            is_scratch = "scratches" in p.parts
+            name = f"scratches/{p.stem}" if is_scratch else p.stem
+            
+            row = {"Name": name, "Created": created, **flat}
+            rows.append(row)
+            all_keys.update(flat.keys())
+        except Exception:
+            continue
+
+    _print_smart_table(rows, ["Name", "Created"], all_keys)
+
+
+def cmd_list_runs(ctx: Ctx, ns: argparse.Namespace) -> None:
+    """Handle: list runs - show execution history."""
+    if not ctx.runs_dir.exists():
+        print(f"No runs found in {ctx.runs_dir}")
+        return
+
+    rows = []
+    all_keys = set()
+
+    for p in ctx.runs_dir.iterdir():
+        if not p.is_dir(): continue
+        manifest_path = p / "manifest.yaml"
+        if not manifest_path.exists(): continue
+        
+        try:
+            data = read_yaml(manifest_path)
+            
+            # Extract key info
+            run_id = data.get("run_id", p.name)
+            status = data.get("status", "UNKNOWN")
+            created = data.get("created_at", "")[:16].replace("T", " ")
+            
+            # Config subset?
+            config = data.get("config", {})
+            flat_cfg = flatten_config(config)
+            
+            row = {"Run ID": run_id, "Status": status, "Created": created, **flat_cfg}
+            rows.append(row)
+            all_keys.update(flat_cfg.keys())
+        except Exception:
+            continue
+
+    # Sort by created desc
+    rows.sort(key=lambda x: x.get("Created", ""), reverse=True)
+    
+    _print_smart_table(rows, ["Run ID", "Status", "Created"], all_keys)
+
+
+def _print_smart_table(rows: list[dict], fixed_cols: list[str], potential_cols: set[str]) -> None:
+    """Print a table with fixed columns + interesting variant columns."""
+    if not rows:
+        print("No items.")
+        return
+
+    # Identify interesting columns (variance > 1)
+    interesting_keys = []
+    for key in sorted(potential_cols):
+        values = set()
+        for row in rows:
+            val = str(row.get(key, ""))
+            values.add(val)
+        if len(values) > 1:
+            interesting_keys.append(key)
+
+    columns = fixed_cols + interesting_keys
+
+    # Calculate widths
+    widths = {col: len(col) for col in columns}
+    for row in rows:
+        for col in columns:
+            val = str(row.get(col, ""))
+            widths[col] = max(widths[col], len(val))
+
+    # Header
+    header = "  ".join(f"{col:<{widths[col]}}" for col in columns)
+    print(header)
+    print("-" * len(header))
+
+    for row in rows:
+        line = "  ".join(f"{str(row.get(col, '')):<{widths[col]}}" for col in columns)
+        print(line)
