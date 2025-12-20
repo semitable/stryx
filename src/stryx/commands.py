@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -481,6 +482,10 @@ def cmd_diff(ctx: Ctx, ns: argparse.Namespace) -> None:
 
 def cmd_schema(ctx: Ctx, ns: argparse.Namespace) -> None:
     """Handle: schema - print the configuration schema."""
+    if getattr(ns, "json", False):
+        print(json.dumps(ctx.schema.model_json_schema(), indent=2))
+        return
+
     print(f"Schema: {ctx.schema.__module__}:{ctx.schema.__name__}")
 
     fields = extract_fields(ctx.schema)

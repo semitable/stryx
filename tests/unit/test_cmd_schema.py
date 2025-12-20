@@ -31,3 +31,15 @@ def test_schema_printing(ctx, capsys):
     assert "name: str = \"default\"" in captured.out
     assert "# Experiment name" in captured.out
     assert "value: int = 1" in captured.out
+
+def test_schema_json(ctx, capsys):
+    """Test that schema can be printed as JSON."""
+    cmd_schema(ctx, argparse.Namespace(json=True))
+    
+    captured = capsys.readouterr()
+    # It should be valid JSON and contain our fields
+    import json
+    data = json.loads(captured.out)
+    assert data["title"] == "Config"
+    assert "name" in data["properties"]
+    assert "value" in data["properties"]

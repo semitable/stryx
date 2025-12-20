@@ -94,6 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # schema
     p_schema = sub.add_parser("schema", help="Show the configuration schema")
+    p_schema.add_argument("--json", action="store_true", help="Output schema as JSON")
     p_schema.set_defaults(handler=cmd_schema)
 
     return p
