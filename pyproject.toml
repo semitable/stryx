@@ -1,6 +1,6 @@
 [project]
 name = "stryx"
-version = "0.1.1"
+version = "0.1.2"
 description = "Typed configuration compiler for ML experiments"
 readme = "README.md"
 authors = [
