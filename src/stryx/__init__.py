@@ -4,7 +4,7 @@ from __future__ import annotations
 from .config import ConfigManager
 
 # Core decorator API
-from .decorator import cli
+from .cli import cli
 
 # Schema introspection
 from .schema import FieldInfo, SchemaIntrospector, extract_fields

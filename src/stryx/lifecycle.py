@@ -13,7 +13,7 @@ from typing import Any, TextIO, TYPE_CHECKING
 from .utils import read_yaml, write_yaml
 
 if TYPE_CHECKING:
-    from .context import Ctx
+    from .utils import Ctx
 
 
 class TeeStream:

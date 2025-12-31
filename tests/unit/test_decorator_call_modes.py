@@ -67,7 +67,7 @@ def test_direct_call_invalid_type(decorated_func):
 
 # --- Tests for CLI Usage (No Arguments) ---
 
-@patch("stryx.decorator.dispatch")
+@patch("stryx.cli.dispatch")
 @patch("sys.argv", ["script.py", "run", "my_recipe"])
 def test_cli_invocation(mock_dispatch, decorated_func):
     """
@@ -100,7 +100,7 @@ def test_cli_invocation(mock_dispatch, decorated_func):
     args_passed = mock_dispatch.call_args[0][1]
     assert args_passed == ["run", "my_recipe"]
 
-@patch("stryx.decorator.dispatch")
+@patch("stryx.cli.dispatch")
 def test_cli_invocation_default_args(mock_dispatch, decorated_func):
     """Test that CLI invocation passes the correct default paths."""
     main, _ = decorated_func

@@ -11,7 +11,7 @@ from stryx.config_builder import (
     read_config_file,
     validate_or_die,
 )
-from stryx.context import Ctx
+from stryx.utils import Ctx
 from stryx.lifecycle import RunContext, get_rank, record_run_manifest
 from stryx.run_id import derive_run_id
 from stryx.schema import FieldInfo, extract_fields

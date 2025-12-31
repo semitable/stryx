@@ -2,7 +2,7 @@ from __future__ import annotations
 import argparse
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
-from stryx.context import Ctx
+from stryx.utils import Ctx
 from stryx.commands import cmd_schema
 
 class Config(BaseModel):

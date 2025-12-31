@@ -2,7 +2,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 from stryx.lifecycle import RunContext, TeeStream, record_run_manifest
-from stryx.context import Ctx
+from stryx.utils import Ctx
 from stryx.utils import read_yaml, write_yaml
 
 @pytest.fixture

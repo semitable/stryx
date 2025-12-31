@@ -3,7 +3,7 @@ import argparse
 import pytest
 from unittest.mock import MagicMock
 from pydantic import BaseModel, ConfigDict
-from stryx.context import Ctx
+from stryx.utils import Ctx
 from stryx.commands import cmd_new, cmd_run, cmd_try
 from stryx.utils import read_yaml, write_yaml
 
