@@ -2,7 +2,6 @@ from __future__ import annotations
 import argparse
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
-from stryx.utils import Ctx
 from stryx.commands import cmd_schema
 
 class Config(BaseModel):
@@ -11,18 +10,22 @@ class Config(BaseModel):
     value: int = 1
 
 @pytest.fixture
-def ctx(tmp_path):
-    """Create a context with temporary directories."""
-    return Ctx(
-        schema=Config,
+def base_ns(tmp_path):
+    """Create a base namespace with context fields."""
+    return argparse.Namespace(
+        stryx_schema=Config,
         configs_dir=tmp_path / "configs",
         runs_dir=tmp_path / "runs",
-        func=lambda x: None
+        stryx_func=lambda x: None
     )
 
-def test_schema_printing(ctx, capsys):
+def test_schema_printing(base_ns, capsys):
     """Test that schema fields and descriptions are printed."""
-    cmd_schema(ctx, argparse.Namespace())
+    # Add command-specific args
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.json = False
+    
+    cmd_schema(ns)
     
     captured = capsys.readouterr()
     assert "Schema: test_cmd_schema:Config" in captured.out
@@ -31,9 +34,12 @@ def test_schema_printing(ctx, capsys):
     assert "# Experiment name" in captured.out
     assert "value: int = 1" in captured.out
 
-def test_schema_json(ctx, capsys):
+def test_schema_json(base_ns, capsys):
     """Test that schema can be printed as JSON."""
-    cmd_schema(ctx, argparse.Namespace(json=True))
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.json = True
+    
+    cmd_schema(ns)
     
     captured = capsys.readouterr()
     # It should be valid JSON and contain our fields

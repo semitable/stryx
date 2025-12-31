@@ -10,7 +10,6 @@ from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel
 
-from stryx.utils import Ctx
 from stryx.commands import (
     cmd_new,
     cmd_fork,
@@ -56,13 +55,13 @@ def cli(
                 return func(*args, **kwargs)
 
             # Otherwise, parse CLI and dispatch
-            ctx = Ctx(
+            return dispatch(
                 schema=schema,
                 configs_dir=recipes_path,
                 runs_dir=runs_path,
                 func=func,
+                argv=sys.argv[1:],
             )
-            return dispatch(ctx, sys.argv[1:])
 
         # Attach metadata for introspection
         wrapper._stryx_schema = schema  # type: ignore
@@ -80,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--configs-dir", dest="configs_dir", type=Path)
 
     sub = p.add_subparsers(dest="cmd", required=False)
-    p.set_defaults(handler=lambda ctx, ns: p.print_help())
+    p.set_defaults(handler=lambda ns: p.print_help())
 
     # list <configs|runs>
     p_list = sub.add_parser(
@@ -89,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="List and compare experiment configurations or review execution history.",
     )
     sub_list = p_list.add_subparsers(dest="what", required=False)
-    p_list.set_defaults(handler=lambda ctx, ns: p_list.print_help())
+    p_list.set_defaults(handler=lambda ns: p_list.print_help())
 
     p_list_cfg = sub_list.add_parser("configs", help="List saved experiment recipes")
     p_list_cfg.set_defaults(handler=cmd_list_configs)
@@ -163,18 +162,33 @@ def normalize_overrides(tokens: list[str]) -> list[str]:
     return tokens[1:] if tokens[:1] == ["--"] else tokens
 
 
-def dispatch(ctx: Ctx, argv: list[str]) -> Any:
+def dispatch(
+    schema: type[BaseModel],
+    configs_dir: Path,
+    runs_dir: Path,
+    func: Callable[[Any], Any],
+    argv: list[str],
+) -> Any:
     parser = build_parser()
     ns = parser.parse_args(argv)
 
-    # resolve effective dirs once
+    # Attach context to namespace
+    ns.stryx_schema = schema
+    ns.stryx_func = func
+
+    # resolve effective dirs (use default if not in args)
     if ns.runs_dir:
-        ctx.runs_dir = ns.runs_dir.expanduser()
+        ns.runs_dir = ns.runs_dir.expanduser()
+    else:
+        ns.runs_dir = runs_dir
+
     if ns.configs_dir:
-        ctx.configs_dir = ns.configs_dir.expanduser()
+        ns.configs_dir = ns.configs_dir.expanduser()
+    else:
+        ns.configs_dir = configs_dir
 
     # normalize override lists if this command has them
     if hasattr(ns, "overrides"):
         ns.overrides = normalize_overrides(ns.overrides)
 
-    return ns.handler(ctx, ns)
+    return ns.handler(ns)

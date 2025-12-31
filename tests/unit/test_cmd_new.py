@@ -2,7 +2,6 @@ from __future__ import annotations
 import argparse
 import pytest
 from pydantic import BaseModel, ConfigDict
-from stryx.utils import Ctx
 from stryx.commands import cmd_new
 from stryx.utils import read_yaml
 
@@ -14,28 +13,33 @@ class Config(BaseModel):
 
 
 @pytest.fixture
-def ctx(tmp_path):
-    """Create a context with temporary directories."""
-    return Ctx(
-        schema=Config,
+def base_ns(tmp_path):
+    """Create a base namespace with context fields."""
+    return argparse.Namespace(
+        stryx_schema=Config,
         configs_dir=tmp_path / "configs",
         runs_dir=tmp_path / "runs",
-        func=lambda x: None,
+        stryx_func=lambda x: None,
     )
 
 
-def test_new_defaults(ctx):
+def test_new_defaults(base_ns):
     """Test creating a new recipe with defaults (sequential name)."""
-    ns = argparse.Namespace(recipe=None, overrides=[], message=None, force=False)
+    # Clone and set command args
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.recipe = None
+    ns.overrides = []
+    ns.message = None
+    ns.force = False
 
     # Ensure directory doesn't exist yet to test creation
-    assert not ctx.configs_dir.exists()
+    assert not base_ns.configs_dir.exists()
 
-    out_path = cmd_new(ctx, ns)
+    out_path = cmd_new(ns)
 
     assert out_path.name == "exp_001.yaml"
     assert out_path.exists()
-    assert ctx.configs_dir.exists()
+    assert base_ns.configs_dir.exists()
 
     data = read_yaml(out_path)
     assert data["name"] == "default_name"
@@ -50,44 +54,59 @@ def test_new_defaults(ctx):
     assert meta["overrides"] == []
 
 
-def test_new_named(ctx):
+def test_new_named(base_ns):
     """Test creating a named recipe."""
-    ns = argparse.Namespace(recipe="my_exp", overrides=[], message=None, force=False)
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.recipe = "my_exp"
+    ns.overrides = []
+    ns.message = None
+    ns.force = False
 
-    out_path = cmd_new(ctx, ns)
+    out_path = cmd_new(ns)
 
     assert out_path.name == "my_exp.yaml"
     assert out_path.exists()
 
 
-def test_new_smart_extension(ctx):
+def test_new_smart_extension(base_ns):
     """Test extension handling."""
     # Case 1: No extension -> adds .yaml
-    ns = argparse.Namespace(recipe="exp1", overrides=[], message=None, force=False)
-    p1 = cmd_new(ctx, ns)
+    ns1 = argparse.Namespace(**vars(base_ns))
+    ns1.recipe = "exp1"
+    ns1.overrides = []
+    ns1.message = None
+    ns1.force = False
+    p1 = cmd_new(ns1)
     assert p1.name == "exp1.yaml"
 
     # Case 2: Has extension -> keeps it
-    ns = argparse.Namespace(recipe="exp2.yml", overrides=[], message=None, force=False)
-    p2 = cmd_new(ctx, ns)
+    ns2 = argparse.Namespace(**vars(base_ns))
+    ns2.recipe = "exp2.yml"
+    ns2.overrides = []
+    ns2.message = None
+    ns2.force = False
+    p2 = cmd_new(ns2)
     assert p2.name == "exp2.yml"
 
-    # Case 3: Weird dot -> keeps it (as per current logic "if '.' in name")
-    ns = argparse.Namespace(recipe="v1.final", overrides=[], message=None, force=False)
-    p3 = cmd_new(ctx, ns)
+    # Case 3: Weird dot -> keeps it
+    ns3 = argparse.Namespace(**vars(base_ns))
+    ns3.recipe = "v1.final"
+    ns3.overrides = []
+    ns3.message = None
+    ns3.force = False
+    p3 = cmd_new(ns3)
     assert p3.name == "v1.final"
 
 
-def test_new_with_overrides(ctx):
+def test_new_with_overrides(base_ns):
     """Test applying overrides."""
-    ns = argparse.Namespace(
-        recipe="overridden",
-        overrides=["value=99", "name=custom"],
-        message=None,
-        force=False,
-    )
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.recipe = "overridden"
+    ns.overrides = ["value=99", "name=custom"]
+    ns.message = None
+    ns.force = False
 
-    out_path = cmd_new(ctx, ns)
+    out_path = cmd_new(ns)
     data = read_yaml(out_path)
 
     assert data["value"] == 99
@@ -95,7 +114,7 @@ def test_new_with_overrides(ctx):
     assert data["__stryx__"]["overrides"] == ["value=99", "name=custom"]
 
 
-def test_new_nested_overrides(ctx):
+def test_new_nested_overrides(base_ns):
     """Test creating a recipe with nested overrides."""
 
     class NestedConfig(BaseModel):
@@ -106,85 +125,103 @@ def test_new_nested_overrides(ctx):
         model_config = ConfigDict(extra="forbid")
         train: NestedConfig = NestedConfig()
 
-    ctx.schema = DeepConfig
-    ns = argparse.Namespace(
-        recipe="deep", overrides=["train.steps=50"], message=None, force=False
-    )
+    base_ns.stryx_schema = DeepConfig
+    
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.recipe = "deep"
+    ns.overrides = ["train.steps=50"]
+    ns.message = None
+    ns.force = False
 
-    out_path = cmd_new(ctx, ns)
+    out_path = cmd_new(ns)
     data = read_yaml(out_path)
 
     assert data["train"]["steps"] == 50
     assert data["__stryx__"]["overrides"] == ["train.steps=50"]
 
 
-def test_new_invalid_overrides(ctx):
+def test_new_invalid_overrides(base_ns):
     """Test that invalid overrides raise an error."""
-    ns = argparse.Namespace(
-        recipe="invalid", overrides=["non_existent=1"], message=None, force=False
-    )
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.recipe = "invalid"
+    ns.overrides = ["non_existent=1"]
+    ns.message = None
+    ns.force = False
 
-    # build_config (called by cmd_new) should raise SystemExit due to validate_or_die
     with pytest.raises(SystemExit):
-        cmd_new(ctx, ns)
+        cmd_new(ns)
 
 
-def test_new_with_message(ctx):
+def test_new_with_message(base_ns):
     """Test adding metadata message."""
-    ns = argparse.Namespace(
-        recipe="desc_test", overrides=[], message="This is a test run", force=False
-    )
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.recipe = "desc_test"
+    ns.overrides = []
+    ns.message = "This is a test run"
+    ns.force = False
 
-    out_path = cmd_new(ctx, ns)
+    out_path = cmd_new(ns)
     data = read_yaml(out_path)
 
     assert data["__stryx__"]["description"] == "This is a test run"
 
 
-def test_overwrite_protection(ctx):
+def test_overwrite_protection(base_ns):
     """Test protection against accidental overwrites."""
     # Create first time
-    ns = argparse.Namespace(recipe="locked", overrides=[], message=None, force=False)
-    cmd_new(ctx, ns)
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.recipe = "locked"
+    ns.overrides = []
+    ns.message = None
+    ns.force = False
+    
+    cmd_new(ns)
 
     # Try creating again without force
     with pytest.raises(SystemExit) as exc:
-        cmd_new(ctx, ns)
+        cmd_new(ns)
     assert "already exists" in str(exc.value)
 
 
-def test_force_overwrite(ctx):
+def test_force_overwrite(base_ns):
     """Test forced overwrite."""
     # Create first time with value=1
-    ns1 = argparse.Namespace(
-        recipe="forced", overrides=["value=1"], message=None, force=False
-    )
-    p1 = cmd_new(ctx, ns1)
+    ns1 = argparse.Namespace(**vars(base_ns))
+    ns1.recipe = "forced"
+    ns1.overrides = ["value=1"]
+    ns1.message = None
+    ns1.force = False
+    p1 = cmd_new(ns1)
     assert read_yaml(p1)["value"] == 1
 
     # Overwrite with value=2
-    ns2 = argparse.Namespace(
-        recipe="forced", overrides=["value=2"], message=None, force=True
-    )
-    p2 = cmd_new(ctx, ns2)
+    ns2 = argparse.Namespace(**vars(base_ns))
+    ns2.recipe = "forced"
+    ns2.overrides = ["value=2"]
+    ns2.message = None
+    ns2.force = True
+    p2 = cmd_new(ns2)
 
     assert read_yaml(p2)["value"] == 2
 
 
-def test_sequential_naming(ctx):
+def test_sequential_naming(base_ns):
     """Test that default names increment."""
-    ns = argparse.Namespace(recipe=None, overrides=[], message=None, force=False)
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.recipe = None
+    ns.overrides = []
+    ns.message = None
+    ns.force = False
 
-    p1 = cmd_new(ctx, ns)
+    p1 = cmd_new(ns)
     assert p1.name == "exp_001.yaml"
 
-    p2 = cmd_new(ctx, ns)
+    p2 = cmd_new(ns)
     assert p2.name == "exp_002.yaml"
 
     # Create a gap (manual file)
-    (ctx.configs_dir / "exp_004.yaml").touch()
+    (base_ns.configs_dir / "exp_004.yaml").touch()
 
     # Should skip to 005
-    p3 = cmd_new(ctx, ns)
+    p3 = cmd_new(ns)
     assert p3.name == "exp_005.yaml"
-

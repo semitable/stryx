@@ -11,7 +11,6 @@ from stryx.config_builder import (
     read_config_file,
     validate_or_die,
 )
-from stryx.utils import Ctx
 from stryx.lifecycle import RunContext, get_rank, record_run_manifest
 from stryx.run_id import derive_run_id
 from stryx.schema import FieldInfo, extract_fields
@@ -24,27 +23,27 @@ from stryx.utils import (
 )
 
 
-def cmd_new(ctx: Ctx, ns: argparse.Namespace) -> Path:
+def cmd_new(ns: argparse.Namespace) -> Path:
     """Handle: new [name] [overrides...] - create from defaults."""
     from filelock import FileLock
 
-    cfg = build_config(ctx.schema, ns.overrides)
+    cfg = build_config(ns.stryx_schema, ns.overrides)
     cfg_data = cfg.model_dump(mode="python")
 
     # Create directory
-    ctx.configs_dir.mkdir(parents=True, exist_ok=True)
+    ns.configs_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         if ns.recipe:
             name = ns.recipe
             if "." not in name:
                 name = f"{name}.yaml"
-            out_path = ctx.configs_dir / name
+            out_path = ns.configs_dir / name
 
             save_recipe(
                 path=out_path,
                 cfg_data=cfg_data,
-                schema_cls=ctx.schema,
+                schema_cls=ns.stryx_schema,
                 overrides=ns.overrides,
                 description=getattr(ns, "message", None),
                 force=getattr(ns, "force", False),
@@ -52,15 +51,15 @@ def cmd_new(ctx: Ctx, ns: argparse.Namespace) -> Path:
             )
         else:
             # Auto-generate name with lock
-            lock_path = ctx.configs_dir / ".stryx.lock"
+            lock_path = ns.configs_dir / ".stryx.lock"
             with FileLock(lock_path):
-                name = get_next_sequential_name(ctx.configs_dir)
-                out_path = ctx.configs_dir / f"{name}.yaml"
+                name = get_next_sequential_name(ns.configs_dir)
+                out_path = ns.configs_dir / f"{name}.yaml"
 
                 save_recipe(
                     path=out_path,
                     cfg_data=cfg_data,
-                    schema_cls=ctx.schema,
+                    schema_cls=ns.stryx_schema,
                     overrides=ns.overrides,
                     description=getattr(ns, "message", None),
                     force=False,
@@ -74,31 +73,31 @@ def cmd_new(ctx: Ctx, ns: argparse.Namespace) -> Path:
     return out_path
 
 
-def cmd_fork(ctx: Ctx, ns: argparse.Namespace) -> Path:
+def cmd_fork(ns: argparse.Namespace) -> Path:
     """Handle: fork <source> <name> [overrides...]"""
 
     # Resolve and Load Source
     try:
-        from_path = resolve_recipe_path(ctx.configs_dir, ns.source)
+        from_path = resolve_recipe_path(ns.configs_dir, ns.source)
     except FileNotFoundError:
         raise SystemExit(f"Source recipe not found: {ns.source}")
 
-    cfg = load_and_override(ctx.schema, from_path, ns.overrides)
+    cfg = load_and_override(ns.stryx_schema, from_path, ns.overrides)
     cfg_data = cfg.model_dump(mode="python")
 
     # Determine output path
     name = ns.name
     if "." not in name:
         name = f"{name}.yaml"
-    out_path = ctx.configs_dir / name
+    out_path = ns.configs_dir / name
 
-    ctx.configs_dir.mkdir(parents=True, exist_ok=True)
+    ns.configs_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         save_recipe(
             path=out_path,
             cfg_data=cfg_data,
-            schema_cls=ctx.schema,
+            schema_cls=ns.stryx_schema,
             overrides=ns.overrides,
             description=getattr(ns, "message", None),
             force=getattr(ns, "force", False),
@@ -112,18 +111,18 @@ def cmd_fork(ctx: Ctx, ns: argparse.Namespace) -> Path:
     return out_path
 
 
-def cmd_run(ctx: Ctx, ns: argparse.Namespace) -> Any:
+def cmd_run(ns: argparse.Namespace) -> Any:
     """Handle: run <target> - run a recipe exactly."""
     try:
-        path = resolve_recipe_path(ctx.configs_dir, ns.target)
+        path = resolve_recipe_path(ns.configs_dir, ns.target)
     except FileNotFoundError:
         raise SystemExit(f"Recipe not found: {ns.target}")
 
     # Load config (run is strict, no overrides)
-    cfg = load_and_override(ctx.schema, path, [])
+    cfg = load_and_override(ns.stryx_schema, path, [])
 
     return _execute(
-        ctx,
+        ns,
         cfg,
         source={"kind": "file", "path": str(path), "name": path.stem},
         overrides=[],
@@ -131,7 +130,7 @@ def cmd_run(ctx: Ctx, ns: argparse.Namespace) -> Any:
     )
 
 
-def cmd_try(ctx: Ctx, ns: argparse.Namespace) -> Any:
+def cmd_try(ns: argparse.Namespace) -> Any:
     """Handle: try [target] [overrides...] - run experimental variant."""
     import petname
 
@@ -146,14 +145,14 @@ def cmd_try(ctx: Ctx, ns: argparse.Namespace) -> Any:
     # Resolve source
     if target_token:
         try:
-            from_path = resolve_recipe_path(ctx.configs_dir, target_token)
-            cfg = load_and_override(ctx.schema, from_path, overrides)
+            from_path = resolve_recipe_path(ns.configs_dir, target_token)
+            cfg = load_and_override(ns.stryx_schema, from_path, overrides)
             lineage = target_token
             name_label = from_path.stem
         except FileNotFoundError:
             raise SystemExit(f"Source recipe not found: {target_token}")
     else:
-        cfg = build_config(ctx.schema, overrides)
+        cfg = build_config(ns.stryx_schema, overrides)
         lineage = None
         name_label = "defaults"
 
@@ -161,7 +160,7 @@ def cmd_try(ctx: Ctx, ns: argparse.Namespace) -> Any:
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
     name = f"{timestamp}_{petname.generate(2)}"
 
-    out_dir = ctx.configs_dir / "scratches"
+    out_dir = ns.configs_dir / "scratches"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{name}.yaml"
 
@@ -169,7 +168,7 @@ def cmd_try(ctx: Ctx, ns: argparse.Namespace) -> Any:
     save_recipe(
         path=out_path,
         cfg_data=cfg.model_dump(mode="python"),
-        schema_cls=ctx.schema,
+        schema_cls=ns.stryx_schema,
         overrides=overrides,
         kind="scratch",
         source=lineage,
@@ -180,7 +179,7 @@ def cmd_try(ctx: Ctx, ns: argparse.Namespace) -> Any:
     print(f"Running scratch: scratches/{name}.yaml")
 
     return _execute(
-        ctx,
+        ns,
         cfg,
         source={"kind": "scratch", "path": str(out_path), "name": name_label},
         overrides=overrides,
@@ -189,7 +188,7 @@ def cmd_try(ctx: Ctx, ns: argparse.Namespace) -> Any:
 
 
 def _execute(
-    ctx: Ctx,
+    ns: argparse.Namespace,
     cfg: Any,
     source: dict[str, Any],
     overrides: list[str],
@@ -204,29 +203,29 @@ def _execute(
     # 2. Setup Manifest (only on rank 0)
     rank = get_rank()
     if rank == 0:
-        record_run_manifest(ctx, cfg, run_id, source, overrides)
+        record_run_manifest(ns, cfg, run_id, source, overrides)
 
-    manifest_path = ctx.runs_dir / run_id / "manifest.yaml"
+    manifest_path = ns.runs_dir / run_id / "manifest.yaml"
 
     # 3. Execute User Function
     with RunContext(manifest_path, rank) as run_ctx:
-        result = ctx.func(cfg)
+        result = ns.stryx_func(cfg)
         run_ctx.record_result(result)
         return result
 
 
-def cmd_list_configs(ctx: Ctx, ns: argparse.Namespace) -> None:
+def cmd_list_configs(ns: argparse.Namespace) -> None:
     """Handle: list configs - show all recipes in a smart table."""
-    if not ctx.configs_dir.exists():
-        print(f"No recipes found in {ctx.configs_dir}")
+    if not ns.configs_dir.exists():
+        print(f"No recipes found in {ns.configs_dir}")
         return
 
     # Collect all recipes
-    canonicals = sorted(ctx.configs_dir.glob("*.yaml")) + sorted(
-        ctx.configs_dir.glob("*.yml")
+    canonicals = sorted(ns.configs_dir.glob("*.yaml")) + sorted(
+        ns.configs_dir.glob("*.yml")
     )
 
-    scratches_dir = ctx.configs_dir / "scratches"
+    scratches_dir = ns.configs_dir / "scratches"
     scratches = []
     if scratches_dir.exists():
         scratches = sorted(scratches_dir.glob("*.yaml"), reverse=True)
@@ -267,16 +266,16 @@ def cmd_list_configs(ctx: Ctx, ns: argparse.Namespace) -> None:
     _print_smart_table(rows, ["Name", "Created"], all_keys)
 
 
-def cmd_list_runs(ctx: Ctx, ns: argparse.Namespace) -> None:
+def cmd_list_runs(ns: argparse.Namespace) -> None:
     """Handle: list runs - show execution history."""
-    if not ctx.runs_dir.exists():
-        print(f"No runs found in {ctx.runs_dir}")
+    if not ns.runs_dir.exists():
+        print(f"No runs found in {ns.runs_dir}")
         return
 
     rows = []
     all_keys = set()
 
-    for p in ctx.runs_dir.iterdir():
+    for p in ns.runs_dir.iterdir():
         if not p.is_dir():
             continue
         manifest_path = p / "manifest.yaml"
@@ -344,7 +343,7 @@ def _print_smart_table(
         print(line)
 
 
-def cmd_edit(ctx: Ctx, ns: argparse.Namespace) -> None:
+def cmd_edit(ns: argparse.Namespace) -> None:
     """Handle: edit <recipe> - launch TUI editor."""
     from stryx.tui import PydanticConfigTUI
 
@@ -352,20 +351,20 @@ def cmd_edit(ctx: Ctx, ns: argparse.Namespace) -> None:
     name = ns.recipe
 
     try:
-        recipe_path = resolve_recipe_path(ctx.configs_dir, name)
+        recipe_path = resolve_recipe_path(ns.configs_dir, name)
     except FileNotFoundError:
         # Offer to create it? For now just exit
         raise SystemExit(f"Recipe not found: {name}\nCreate it first with: new {name}")
 
-    tui = PydanticConfigTUI(ctx.schema, recipe_path)
+    tui = PydanticConfigTUI(ns.stryx_schema, recipe_path)
     tui.run()
 
 
-def cmd_show(ctx: Ctx, ns: argparse.Namespace) -> None:
+def cmd_show(ns: argparse.Namespace) -> None:
     """Handle: show [target] [overrides...]"""
     # Get schema defaults
     try:
-        defaults_instance = ctx.schema()
+        defaults_instance = ns.stryx_schema()
         schema_defaults = defaults_instance.model_dump(mode="python")
     except Exception as e:
         raise SystemExit(f"Schema has required fields without defaults:\n{e}")
@@ -376,7 +375,7 @@ def cmd_show(ctx: Ctx, ns: argparse.Namespace) -> None:
 
     if ns.target:
         try:
-            path = resolve_recipe_path(ctx.configs_dir, ns.target)
+            path = resolve_recipe_path(ns.configs_dir, ns.target)
             recipe_data = read_config_file(path)
             # Strip metadata
             if isinstance(recipe_data, dict):
@@ -404,7 +403,7 @@ def cmd_show(ctx: Ctx, ns: argparse.Namespace) -> None:
         apply_override(data, tok)
 
     # Validate
-    cfg = validate_or_die(ctx.schema, data, "show")
+    cfg = validate_or_die(ns.stryx_schema, data, "show")
     final_data = cfg.model_dump(mode="python")
 
     # Print header
@@ -432,25 +431,25 @@ def cmd_show(ctx: Ctx, ns: argparse.Namespace) -> None:
     )
 
 
-def cmd_diff(ctx: Ctx, ns: argparse.Namespace) -> None:
+def cmd_diff(ns: argparse.Namespace) -> None:
     """Handle: diff <recipe_a> <recipe_b>"""
     # Load both configs
     try:
-        path_a = resolve_recipe_path(ctx.configs_dir, ns.recipe_a)
+        path_a = resolve_recipe_path(ns.configs_dir, ns.recipe_a)
         cfg_a = read_config_file(path_a)
     except FileNotFoundError:
         raise SystemExit(f"Recipe not found: {ns.recipe_a}")
 
     if ns.recipe_b:
         try:
-            path_b = resolve_recipe_path(ctx.configs_dir, ns.recipe_b)
+            path_b = resolve_recipe_path(ns.configs_dir, ns.recipe_b)
             cfg_b = read_config_file(path_b)
             name_b = ns.recipe_b
         except FileNotFoundError:
             raise SystemExit(f"Recipe not found: {ns.recipe_b}")
     else:
         # Diff against defaults
-        base = ctx.schema()
+        base = ns.stryx_schema()
         cfg_b = base.model_dump(mode="python")
         name_b = "(defaults)"
 
@@ -489,15 +488,15 @@ def cmd_diff(ctx: Ctx, ns: argparse.Namespace) -> None:
         print("No differences found.")
 
 
-def cmd_schema(ctx: Ctx, ns: argparse.Namespace) -> None:
+def cmd_schema(ns: argparse.Namespace) -> None:
     """Handle: schema - print the configuration schema."""
     if getattr(ns, "json", False):
-        print(json.dumps(ctx.schema.model_json_schema(), indent=2))
+        print(json.dumps(ns.stryx_schema.model_json_schema(), indent=2))
         return
 
-    print(f"Schema: {ctx.schema.__module__}:{ctx.schema.__name__}")
+    print(f"Schema: {ns.stryx_schema.__module__}:{ns.stryx_schema.__name__}")
 
-    fields = extract_fields(ctx.schema)
+    fields = extract_fields(ns.stryx_schema)
     if fields:
         print("Fields:")
         groups: dict[str, list[FieldInfo]] = {}
@@ -559,9 +558,9 @@ def cmd_schema(ctx: Ctx, ns: argparse.Namespace) -> None:
         print()
 
 
-# ============================================================================
+# ============================================================================ 
 # Helpers
-# ============================================================================
+# ============================================================================ 
 
 _NOT_FOUND = object()
 

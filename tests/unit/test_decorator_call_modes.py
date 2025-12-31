@@ -48,20 +48,11 @@ def test_direct_call_kwargs(decorated_func):
     impl.assert_called_once_with(cfg, extra="foo")
 
 def test_direct_call_invalid_type(decorated_func):
-    """
-    Test calling with an invalid type.
-    
-    Because we removed the `isinstance` check, this should NOT trigger the CLI.
-    It should call the underlying function directly, which will likely raise
-    a standard Python error (like AttributeError) if it tries to use the object.
-    """
-    # Define a function that actually uses the input to trigger an error
+    """Test calling with an invalid type (should not trigger CLI)."""
     @stryx.cli(schema=MyConfig)
     def fragile_main(cfg: MyConfig):
-        return cfg.val  # Will fail if cfg is not a Config
+        return cfg.val
 
-    # Pass an integer instead of Config
-    # Expect: AttributeError (int has no attribute 'val'), NOT SystemExit or CLI parsing error
     with pytest.raises(AttributeError):
         fragile_main(123)
 
@@ -75,8 +66,7 @@ def test_cli_invocation(mock_dispatch, decorated_func):
     
     This should:
     1. Detect no args.
-    2. Create a Ctx (Context).
-    3. Call stryx.decorator.dispatch.
+    2. Call stryx.cli.dispatch with context components.
     """
     main, impl = decorated_func
     mock_dispatch.return_value = "cli_result"
@@ -90,23 +80,22 @@ def test_cli_invocation(mock_dispatch, decorated_func):
     # The underlying function should NOT be called yet (dispatch handles that)
     impl.assert_not_called()
     
-    # Verify dispatch was called with correct context
+    # Verify dispatch was called with correct arguments
     mock_dispatch.assert_called_once()
-    ctx_arg = mock_dispatch.call_args[0][0]
-    assert ctx_arg.schema == MyConfig
-    assert ctx_arg.func.__name__ == "my_main"
+    kwargs = mock_dispatch.call_args.kwargs
     
-    # Verify sys.argv was passed (excluding script name)
-    args_passed = mock_dispatch.call_args[0][1]
-    assert args_passed == ["run", "my_recipe"]
+    assert kwargs["schema"] == MyConfig
+    assert kwargs["func"].__name__ == "my_main"
+    assert kwargs["configs_dir"].name == "configs"
+    assert kwargs["runs_dir"].name == "runs"
+    assert kwargs["argv"] == ["run", "my_recipe"]
 
 @patch("stryx.cli.dispatch")
 def test_cli_invocation_default_args(mock_dispatch, decorated_func):
     """Test that CLI invocation passes the correct default paths."""
     main, _ = decorated_func
-    
     main()
     
-    ctx = mock_dispatch.call_args[0][0]
-    assert ctx.configs_dir.name == "configs"
-    assert ctx.runs_dir.name == "runs"
+    kwargs = mock_dispatch.call_args.kwargs
+    assert kwargs["configs_dir"].name == "configs"
+    assert kwargs["runs_dir"].name == "runs"

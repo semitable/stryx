@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import platform
@@ -13,7 +14,7 @@ from typing import Any, TextIO, TYPE_CHECKING
 from .utils import read_yaml, write_yaml
 
 if TYPE_CHECKING:
-    from .utils import Ctx
+    pass
 
 
 class TeeStream:
@@ -144,14 +145,14 @@ def get_rank() -> int:
 
 
 def record_run_manifest(
-    ctx: Ctx,
+    ns: argparse.Namespace,
     cfg: Any,
     run_id: str,
     source: dict[str, Any],
     overrides: list[str],
 ) -> Path:
     """Write a per-run manifest with resolved config and metadata."""
-    run_root = ctx.runs_dir / run_id
+    run_root = ns.runs_dir / run_id
     run_root.mkdir(parents=True, exist_ok=True)
     manifest_path = run_root / "manifest.yaml"
     resolved_path = run_root / "config.yaml"
@@ -167,7 +168,7 @@ def record_run_manifest(
     manifest = {
         "run_id": run_id,
         "created_at": datetime.now(tz=timezone.utc).isoformat(),
-        "schema": f"{ctx.schema.__module__}:{ctx.schema.__name__}",
+        "schema": f"{ns.stryx_schema.__module__}:{ns.stryx_schema.__name__}",
         "config_source": source,
         "overrides": overrides or [],
         "config": cfg.model_dump(mode="python"),

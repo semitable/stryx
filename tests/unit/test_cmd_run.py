@@ -3,7 +3,6 @@ import argparse
 import pytest
 from unittest.mock import MagicMock
 from pydantic import BaseModel, ConfigDict
-from stryx.utils import Ctx
 from stryx.commands import cmd_new, cmd_run, cmd_try
 from stryx.utils import read_yaml, write_yaml
 
@@ -17,128 +16,177 @@ def mock_func():
     return MagicMock(return_value="success_result")
 
 @pytest.fixture
-def ctx(tmp_path, mock_func):
-    """Create a context with temporary directories."""
+def base_ns(tmp_path, mock_func):
+    """Create a base namespace with context fields."""
     configs_dir = tmp_path / "configs"
     configs_dir.mkdir()
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir()
-    return Ctx(
-        schema=Config,
+    return argparse.Namespace(
+        stryx_schema=Config,
         configs_dir=configs_dir,
         runs_dir=runs_dir,
-        func=mock_func
+        stryx_func=mock_func
     )
 
-def test_run_basic(ctx):
+def test_run_basic(base_ns):
     """Test running an existing recipe exactly (no overrides)."""
     # 1. Setup: create a recipe
-    cmd_new(ctx, argparse.Namespace(recipe="base", overrides=["value=10"], message=None, force=False))
+    # We clone the base_ns or just set attributes. Since we run sequentially in test, setting is fine.
+    # But for clarity let's just set what we need.
+    ns_new = argparse.Namespace(**vars(base_ns))
+    ns_new.recipe = "base"
+    ns_new.overrides = ["value=10"]
+    ns_new.message = None
+    ns_new.force = False
+    cmd_new(ns_new)
     
     # 2. Execute run
-    ns = argparse.Namespace(target="base", run_id=None)
-    result = cmd_run(ctx, ns)
+    ns_run = argparse.Namespace(**vars(base_ns))
+    ns_run.target = "base"
+    ns_run.run_id = None
+    
+    result = cmd_run(ns_run)
     
     assert result == "success_result"
-    ctx.func.assert_called_once()
+    base_ns.stryx_func.assert_called_once()
     
     # Verify the config passed to func
-    passed_cfg = ctx.func.call_args[0][0]
+    passed_cfg = base_ns.stryx_func.call_args[0][0]
     assert passed_cfg.value == 10
     
     # Verify artifacts
-    run_dirs = list(ctx.runs_dir.glob("run_*"))
+    run_dirs = list(base_ns.runs_dir.glob("run_*"))
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
     assert (run_dir / "manifest.yaml").exists()
     assert (run_dir / "stdout.log").exists()
 
-def test_run_with_id(ctx):
+def test_run_with_id(base_ns):
     """Test 'run' with explicit --run-id."""
-    cmd_new(ctx, argparse.Namespace(recipe="base", overrides=[], message=None, force=False))
+    ns_new = argparse.Namespace(**vars(base_ns))
+    ns_new.recipe = "base"
+    ns_new.overrides = []
+    ns_new.message = None
+    ns_new.force = False
+    cmd_new(ns_new)
     
-    ns = argparse.Namespace(target="base", run_id="my-custom-id")
-    cmd_run(ctx, ns)
+    ns_run = argparse.Namespace(**vars(base_ns))
+    ns_run.target = "base"
+    ns_run.run_id = "my-custom-id"
+    cmd_run(ns_run)
     
-    assert (ctx.runs_dir / "my-custom-id" / "manifest.yaml").exists()
+    assert (base_ns.runs_dir / "my-custom-id" / "manifest.yaml").exists()
 
-def test_try_defaults(ctx):
+def test_try_defaults(base_ns):
     """Test 'try' starting from schema defaults."""
-    ns = argparse.Namespace(target=None, overrides=["value=42"], message=None, run_id=None)
-    result = cmd_try(ctx, ns)
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.target = None
+    ns.overrides = ["value=42"]
+    ns.message = None
+    ns.run_id = None
+    
+    result = cmd_try(ns)
     
     assert result == "success_result"
-    passed_cfg = ctx.func.call_args[0][0]
+    passed_cfg = base_ns.stryx_func.call_args[0][0]
     assert passed_cfg.value == 42
     
     # Verify scratch file created
-    scratches = list((ctx.configs_dir / "scratches").glob("*.yaml"))
+    scratches = list((base_ns.configs_dir / "scratches").glob("*.yaml"))
     assert len(scratches) == 1
     data = read_yaml(scratches[0])
     assert data["value"] == 42
     assert data["__stryx__"]["type"] == "scratch"
 
-def test_try_from_recipe(ctx):
+def test_try_from_recipe(base_ns):
     """Test 'try' based on an existing recipe."""
-    cmd_new(ctx, argparse.Namespace(recipe="base", overrides=["value=10"], message=None, force=False))
+    ns_new = argparse.Namespace(**vars(base_ns))
+    ns_new.recipe = "base"
+    ns_new.overrides = ["value=10"]
+    ns_new.message = None
+    ns_new.force = False
+    cmd_new(ns_new)
     
     # try base value=20
-    ns = argparse.Namespace(target="base", overrides=["value=20"], message="Experiment 1", run_id=None)
-    result = cmd_try(ctx, ns)
+    ns_try = argparse.Namespace(**vars(base_ns))
+    ns_try.target = "base"
+    ns_try.overrides = ["value=20"]
+    ns_try.message = "Experiment 1"
+    ns_try.run_id = None
+    
+    result = cmd_try(ns_try)
     
     assert result == "success_result"
-    passed_cfg = ctx.func.call_args[0][0]
+    passed_cfg = base_ns.stryx_func.call_args[0][0]
     assert passed_cfg.value == 20
     
     # Verify scratch lineage
-    scratches = list((ctx.configs_dir / "scratches").glob("*.yaml"))
+    scratches = list((base_ns.configs_dir / "scratches").glob("*.yaml"))
     data = read_yaml(scratches[0])
     assert data["__stryx__"]["from"] == "base"
     assert data["__stryx__"]["description"] == "Experiment 1"
 
-def test_try_implicit_overrides(ctx):
+def test_try_implicit_overrides(base_ns):
     """Test 'try' when the first argument is an override (no recipe name)."""
     # try value=50
-    ns = argparse.Namespace(target="value=50", overrides=[], message=None, run_id=None)
-    result = cmd_try(ctx, ns)
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.target = "value=50"
+    ns.overrides = []
+    ns.message = None
+    ns.run_id = None
+    
+    result = cmd_try(ns)
     
     assert result == "success_result"
-    passed_cfg = ctx.func.call_args[0][0]
+    passed_cfg = base_ns.stryx_func.call_args[0][0]
     assert passed_cfg.value == 50
 
-def test_run_error_missing_recipe(ctx):
+def test_run_error_missing_recipe(base_ns):
     """Test that 'run' fails gracefully if recipe not found."""
-    ns = argparse.Namespace(target="nonexistent", run_id=None)
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.target = "nonexistent"
+    ns.run_id = None
+    
     with pytest.raises(SystemExit) as exc:
-        cmd_run(ctx, ns)
+        cmd_run(ns)
     assert "Recipe not found" in str(exc.value)
 
-def test_run_error_invalid_recipe(ctx):
+def test_run_error_invalid_recipe(base_ns):
     """Test that 'run' fails if the recipe content is invalid for the schema."""
     # Manually create an invalid recipe
-    recipe_path = ctx.configs_dir / "invalid.yaml"
+    recipe_path = base_ns.configs_dir / "invalid.yaml"
     write_yaml(recipe_path, {"value": "not-an-int", "__stryx__": {}})
     
-    ns = argparse.Namespace(target="invalid", run_id=None)
+    ns = argparse.Namespace(**vars(base_ns))
+    ns.target = "invalid"
+    ns.run_id = None
+    
     with pytest.raises(SystemExit) as exc:
-        cmd_run(ctx, ns)
+        cmd_run(ns)
     assert "Config validation failed" in str(exc.value)
 
-def test_run_exception_propagation(ctx):
+def test_run_exception_propagation(base_ns):
     """Test that exceptions from the user function propagate out of cmd_run."""
-    cmd_new(ctx, argparse.Namespace(recipe="base", overrides=[], message=None, force=False))
+    ns_new = argparse.Namespace(**vars(base_ns))
+    ns_new.recipe = "base"
+    ns_new.overrides = []
+    ns_new.message = None
+    ns_new.force = False
+    cmd_new(ns_new)
     
     # Make func fail
-    ctx.func.side_effect = ValueError("User code failed")
+    base_ns.stryx_func.side_effect = ValueError("User code failed")
     
-    ns = argparse.Namespace(target="base", run_id=None)
+    ns_run = argparse.Namespace(**vars(base_ns))
+    ns_run.target = "base"
+    ns_run.run_id = None
     
     with pytest.raises(ValueError, match="User code failed"):
-        cmd_run(ctx, ns)
+        cmd_run(ns_run)
     
     # Verify manifest status is FAILED (RunContext handles this on exit)
-    # We need to find the run directory
-    run_dir = list(ctx.runs_dir.glob("run_*"))[0]
+    run_dir = list(base_ns.runs_dir.glob("run_*"))[0]
     data = read_yaml(run_dir / "manifest.yaml")
     assert data["status"] == "FAILED"
     assert "User code failed" in data["error"]
