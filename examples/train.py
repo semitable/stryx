@@ -7,11 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 import stryx
 
 
-# =============================================================================
-# Schema Definition
-# =============================================================================
-
-
 class TrainCfg(BaseModel):
     """Training hyperparameters."""
 
@@ -71,11 +66,6 @@ class Config(BaseModel):
     sched: SchedulerCfg | None = Field(default=None, discriminator="kind")
 
 
-# =============================================================================
-# Training Logic
-# =============================================================================
-
-
 def train(cfg: Config) -> None:
     """Simulated training loop."""
 
@@ -91,11 +81,6 @@ def train(cfg: Config) -> None:
 
         if step % max(1, cfg.train.steps // 5) == 0:
             print(f"  step={step:04d} loss={loss:.6f}")
-
-
-# =============================================================================
-# Entry Point
-# =============================================================================
 
 
 @stryx.cli(schema=Config)
