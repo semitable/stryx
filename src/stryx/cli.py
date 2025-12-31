@@ -159,6 +159,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def normalize_overrides(tokens: list[str]) -> list[str]:
+    """Remove the optional '--' separator if present in the captured tokens.
+
+    argparse.REMAINDER captures everything after the command, including the
+    double-dash separator often used to distinguish positional arguments
+    from overrides.
+    """
     return tokens[1:] if tokens[:1] == ["--"] else tokens
 
 
