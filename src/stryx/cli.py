@@ -16,7 +16,7 @@ from stryx.commands import (
     run_list,
     run_show,
     run_diff,
-    recipe_clone,
+    recipe_fork,
     recipe_diff,
     recipe_edit,
     recipe_init,
@@ -84,7 +84,7 @@ def dispatch(
         no_args_is_help=True,
     )
     recipe_app.command(name="init")(recipe_init)
-    recipe_app.command(name="clone")(recipe_clone)
+    recipe_app.command(name="fork")(recipe_fork)
     recipe_app.command(name="edit")(recipe_edit)
     recipe_app.command(name="show")(recipe_show)
     recipe_app.command(name="diff")(recipe_diff)

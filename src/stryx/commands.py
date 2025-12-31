@@ -72,6 +72,7 @@ def recipe_init(
 
     try:
         if name:
+            _validate_name_not_override(name, "name")
             if "." not in name:
                 name = f"{name}.yaml"
             out_path = c.configs_dir / name
@@ -106,7 +107,7 @@ def recipe_init(
     return out_path
 
 
-def recipe_clone(
+def recipe_fork(
     ctx: typer.Context,
     source: Annotated[str, typer.Argument(help="Source recipe name/path.")],
     name: Annotated[str, typer.Argument(help="New recipe name.")],
@@ -123,9 +124,15 @@ def recipe_clone(
         typer.Option("--force", help="Overwrite destination."),
     ] = False,
 ) -> Path:
-    """Clone (fork) a recipe with modifications."""
+    """Fork an existing recipe with modifications."""
     c: Ctx = ctx.obj
     overrides = overrides or []
+
+    # Validate names to prevent "stryx recipes fork source optim.lr=1" error
+    # source might be a path, but usually won't contain '=' unless it's weird.
+    # But 'name' definitely shouldn't.
+    _validate_name_not_override(source, "source")
+    _validate_name_not_override(name, "name")
 
     try:
         from_path = resolve_recipe_path(c.configs_dir, source)
@@ -157,7 +164,7 @@ def recipe_clone(
         print(f"Error: {e} Use --force to overwrite.")
         raise typer.Exit(code=1)
 
-    print(f"Cloned recipe: {out_path}")
+    print(f"Forked recipe: {out_path}")
     return out_path
 
 
@@ -168,6 +175,7 @@ def recipe_edit(
     """Edit a recipe interactively (TUI)."""
     from stryx.tui import PydanticConfigTUI
     c: Ctx = ctx.obj
+    _validate_name_not_override(name, "name")
 
     try:
         recipe_path = resolve_recipe_path(c.configs_dir, name)
@@ -211,6 +219,9 @@ def recipe_diff(
 ) -> None:
     """Compare two recipes."""
     c: Ctx = ctx.obj
+    _validate_name_not_override(name_a, "name_a")
+    if name_b:
+        _validate_name_not_override(name_b, "name_b")
 
     try:
         path_a = resolve_recipe_path(c.configs_dir, name_a)
@@ -477,6 +488,13 @@ def run_diff(ctx: typer.Context, id_a: str, id_b: str) -> None:
 # ============================================================================
 
 _NOT_FOUND = object()
+
+def _validate_name_not_override(value: str, arg_name: str) -> None:
+    """Raise error if a name argument looks like an override (contains '=')."""
+    if "=" in value:
+        print(f"Error: Argument '{arg_name}' ('{value}') looks like an override (contains '=').")
+        print(f"Did you forget to provide the '{arg_name}'?")
+        raise typer.Exit(code=1)
 
 def _get_nested(data: dict[str, Any], path: list[str]) -> Any:
     current = data
