@@ -71,6 +71,7 @@ def dispatch(
         add_completion=False,
         help="Experiment management CLI",
         no_args_is_help=True,
+        pretty_exceptions_enable=False,
     )
 
     # 1. Top-level run alias (Most common command)
