@@ -7,16 +7,16 @@ from pydantic import BaseModel
 
 from stryx.context import Ctx
 from stryx.commands import (
-    cmd_new, 
-    cmd_fork, 
-    cmd_run, 
-    cmd_try, 
-    cmd_list_configs, 
+    cmd_new,
+    cmd_fork,
+    cmd_run,
+    cmd_try,
+    cmd_list_configs,
     cmd_list_runs,
     cmd_edit,
     cmd_show,
     cmd_diff,
-    cmd_schema
+    cmd_schema,
 )
 
 
@@ -31,9 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # list <configs|runs>
     p_list = sub.add_parser(
-        "list", 
+        "list",
         help="List experiments or execution runs",
-        description="List and compare experiment configurations or review execution history."
+        description="List and compare experiment configurations or review execution history.",
     )
     sub_list = p_list.add_subparsers(dest="what", required=False)
     p_list.set_defaults(handler=lambda ctx, ns: p_list.print_help())
@@ -53,7 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_new.set_defaults(handler=cmd_new)
 
     # try [target] -- overrides...
-    p_try = sub.add_parser("try", help="Run an experimental variant (saved to scratches)")
+    p_try = sub.add_parser(
+        "try", help="Run an experimental variant (saved to scratches)"
+    )
     p_try.add_argument("target", nargs="?")
     p_try.add_argument("--run-id", help="Explicitly set run id")
     p_try.add_argument("-m", "--message", help="Description for scratch metadata")
@@ -71,7 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_fork.add_argument("source")
     p_fork.add_argument("name")
     p_fork.add_argument("-m", "--message", help="Description of the experiment")
-    p_fork.add_argument("--force", action="store_true", help="Overwrite existing recipe")
+    p_fork.add_argument(
+        "--force", action="store_true", help="Overwrite existing recipe"
+    )
     p_fork.add_argument("overrides", nargs=argparse.REMAINDER)
     p_fork.set_defaults(handler=cmd_fork)
 
@@ -81,7 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_edit.set_defaults(handler=cmd_edit)
 
     # show [target] [overrides...]
-    p_show = sub.add_parser("show", help="Display configuration with source annotations")
+    p_show = sub.add_parser(
+        "show", help="Display configuration with source annotations"
+    )
     p_show.add_argument("target", nargs="?")
     p_show.add_argument("overrides", nargs=argparse.REMAINDER)
     p_show.set_defaults(handler=cmd_show)
@@ -119,15 +125,3 @@ def dispatch(ctx: Ctx, argv: list[str]) -> Any:
         ns.overrides = normalize_overrides(ns.overrides)
 
     return ns.handler(ctx, ns)
-
-
-if __name__ == "__main__":
-    dispatch(
-        ctx=Ctx(
-            schema=BaseModel, 
-            configs_dir=Path("configs/"), 
-            runs_dir=Path("runs/"),
-            func=lambda x: print(f"Running with {x}")
-        ),
-        argv=sys.argv[1:],
-    )
