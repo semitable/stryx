@@ -1,8 +1,11 @@
-import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Optional
+
+import typer
+from filelock import FileLock
+import petname
 
 from stryx.config_builder import (
     apply_override,
@@ -15,6 +18,7 @@ from stryx.lifecycle import RunContext, get_rank, record_run_manifest
 from stryx.run_id import derive_run_id
 from stryx.schema import FieldInfo, extract_fields
 from stryx.utils import (
+    Ctx,
     flatten_config,
     get_next_sequential_name,
     read_yaml,
@@ -23,136 +27,213 @@ from stryx.utils import (
 )
 
 
-def cmd_new(ns: argparse.Namespace) -> Path:
-    """Handle: new [name] [overrides...] - create from defaults."""
-    from filelock import FileLock
+def cmd_new(
+    ctx: typer.Context,
+    recipe: Annotated[
+        Optional[str],
+        typer.Argument(
+            metavar="recipe",
+            help="Optional name for the recipe. If omitted, an auto-incrementing name like 'exp_001' is used.",
+        ),
+    ] = None,
+    overrides: Annotated[
+        Optional[list[str]],
+        typer.Argument(
+            metavar="overrides",
+            help="Configuration overrides in 'key=value' format.",
+        ),
+    ] = None,
+    message: Annotated[
+        Optional[str],
+        typer.Option("--message", "-m", help="Short description to store in the recipe metadata."),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Overwrite the recipe if it already exists."),
+    ] = False,
+) -> Path:
+    """Create a fresh experiment recipe from defaults."""
+    c: Ctx = ctx.obj
+    overrides = overrides or []
 
-    cfg = build_config(ns.stryx_schema, ns.overrides)
+    # Handle case where recipe name is omitted but overrides are provided
+    # e.g. `stryx new optim.lr=1` -> recipe="optim.lr=1", overrides=[]
+    if recipe and "=" in recipe:
+        overrides = [recipe] + overrides
+        recipe = None
+
+    cfg = build_config(c.schema, overrides)
     cfg_data = cfg.model_dump(mode="python")
 
     # Create directory
-    ns.configs_dir.mkdir(parents=True, exist_ok=True)
+    c.configs_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        if ns.recipe:
-            name = ns.recipe
+        if recipe:
+            name = recipe
             if "." not in name:
                 name = f"{name}.yaml"
-            out_path = ns.configs_dir / name
+            out_path = c.configs_dir / name
 
             save_recipe(
                 path=out_path,
                 cfg_data=cfg_data,
-                schema_cls=ns.stryx_schema,
-                overrides=ns.overrides,
-                description=getattr(ns, "message", None),
-                force=getattr(ns, "force", False),
+                schema_cls=c.schema,
+                overrides=overrides,
+                description=message,
+                force=force,
                 kind="canonical",
             )
         else:
             # Auto-generate name with lock
-            lock_path = ns.configs_dir / ".stryx.lock"
+            lock_path = c.configs_dir / ".stryx.lock"
             with FileLock(lock_path):
-                name = get_next_sequential_name(ns.configs_dir)
-                out_path = ns.configs_dir / f"{name}.yaml"
+                name = get_next_sequential_name(c.configs_dir)
+                out_path = c.configs_dir / f"{name}.yaml"
 
                 save_recipe(
                     path=out_path,
                     cfg_data=cfg_data,
-                    schema_cls=ns.stryx_schema,
-                    overrides=ns.overrides,
-                    description=getattr(ns, "message", None),
+                    schema_cls=c.schema,
+                    overrides=overrides,
+                    description=message,
                     force=False,
                     kind="canonical",
                 )
 
     except FileExistsError as e:
-        raise SystemExit(f"Error: {e} Use --force to overwrite.")
+        print(f"Error: {e} Use --force to overwrite.")
+        raise typer.Exit(code=1)
 
     print(f"Created recipe: {out_path}")
     return out_path
 
 
-def cmd_fork(ns: argparse.Namespace) -> Path:
-    """Handle: fork <source> <name> [overrides...]"""
+def cmd_fork(
+    ctx: typer.Context,
+    source: Annotated[str, typer.Argument(metavar="source", help="Source recipe name or file path.")],
+    name: Annotated[str, typer.Argument(metavar="name", help="Name for the new forked recipe.")],
+    overrides: Annotated[
+        Optional[list[str]],
+        typer.Argument(metavar="overrides", help="Configuration overrides in 'key=value' format."),
+    ] = None,
+    message: Annotated[
+        Optional[str],
+        typer.Option("--message", "-m", help="Short description for the new recipe."),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Overwrite the destination recipe if it exists."),
+    ] = False,
+) -> Path:
+    """Fork an existing recipe and apply modifications."""
+    c: Ctx = ctx.obj
+    overrides = overrides or []
 
     # Resolve and Load Source
     try:
-        from_path = resolve_recipe_path(ns.configs_dir, ns.source)
+        from_path = resolve_recipe_path(c.configs_dir, source)
     except FileNotFoundError:
-        raise SystemExit(f"Source recipe not found: {ns.source}")
+        print(f"Source recipe not found: {source}")
+        raise typer.Exit(code=1)
 
-    cfg = load_and_override(ns.stryx_schema, from_path, ns.overrides)
+    cfg = load_and_override(c.schema, from_path, overrides)
     cfg_data = cfg.model_dump(mode="python")
 
     # Determine output path
-    name = ns.name
     if "." not in name:
         name = f"{name}.yaml"
-    out_path = ns.configs_dir / name
+    out_path = c.configs_dir / name
 
-    ns.configs_dir.mkdir(parents=True, exist_ok=True)
+    c.configs_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         save_recipe(
             path=out_path,
             cfg_data=cfg_data,
-            schema_cls=ns.stryx_schema,
-            overrides=ns.overrides,
-            description=getattr(ns, "message", None),
-            force=getattr(ns, "force", False),
+            schema_cls=c.schema,
+            overrides=overrides,
+            description=message,
+            force=force,
             kind="canonical",
-            source=str(ns.source),
+            source=str(source),
         )
     except FileExistsError as e:
-        raise SystemExit(f"Error: {e} Use --force to overwrite.")
+        print(f"Error: {e} Use --force to overwrite.")
+        raise typer.Exit(code=1)
 
     print(f"Forked recipe: {out_path}")
     return out_path
 
 
-def cmd_run(ns: argparse.Namespace) -> Any:
-    """Handle: run <target> - run a recipe exactly."""
+def cmd_run(
+    ctx: typer.Context,
+    target: Annotated[str, typer.Argument(metavar="recipe", help="Recipe name or path to execute.")],
+    run_id: Annotated[
+        Optional[str],
+        typer.Option("--run-id", help="Manually specify a unique ID for this run."),
+    ] = None,
+) -> Any:
+    """Execute a specific experiment recipe exactly as defined."""
+    c: Ctx = ctx.obj
     try:
-        path = resolve_recipe_path(ns.configs_dir, ns.target)
+        path = resolve_recipe_path(c.configs_dir, target)
     except FileNotFoundError:
-        raise SystemExit(f"Recipe not found: {ns.target}")
+        print(f"Recipe not found: {target}")
+        raise typer.Exit(code=1)
 
     # Load config (run is strict, no overrides)
-    cfg = load_and_override(ns.stryx_schema, path, [])
+    cfg = load_and_override(c.schema, path, [])
 
     return _execute(
-        ns,
+        c,
         cfg,
         source={"kind": "file", "path": str(path), "name": path.stem},
         overrides=[],
-        run_id_override=getattr(ns, "run_id", None),
+        run_id_override=run_id,
     )
 
 
-def cmd_try(ns: argparse.Namespace) -> Any:
-    """Handle: try [target] [overrides...] - run experimental variant."""
-    import petname
-
-    target_token = ns.target
-    overrides = ns.overrides
+def cmd_try(
+    ctx: typer.Context,
+    target: Annotated[
+        Optional[str],
+        typer.Argument(metavar="recipe", help="Optional base recipe to start from."),
+    ] = None,
+    overrides: Annotated[
+        Optional[list[str]],
+        typer.Argument(metavar="overrides", help="Configuration overrides in 'key=value' format."),
+    ] = None,
+    message: Annotated[
+        Optional[str],
+        typer.Option("--message", "-m", help="Short description for the scratch metadata."),
+    ] = None,
+    run_id: Annotated[
+        Optional[str],
+        typer.Option("--run-id", help="Manually specify a unique ID for this run."),
+    ] = None,
+) -> Any:
+    """Run an experiment variant without saving a permanent recipe (saved to scratches)."""
+    c: Ctx = ctx.obj
+    overrides = overrides or []
 
     # If target token looks like an override (contains '='), shift it
-    if target_token and "=" in target_token:
-        overrides = [target_token] + overrides
-        target_token = None
+    if target and "=" in target:
+        overrides = [target] + overrides
+        target = None
 
     # Resolve source
-    if target_token:
+    if target:
         try:
-            from_path = resolve_recipe_path(ns.configs_dir, target_token)
-            cfg = load_and_override(ns.stryx_schema, from_path, overrides)
-            lineage = target_token
+            from_path = resolve_recipe_path(c.configs_dir, target)
+            cfg = load_and_override(c.schema, from_path, overrides)
+            lineage = target
             name_label = from_path.stem
         except FileNotFoundError:
-            raise SystemExit(f"Source recipe not found: {target_token}")
+            print(f"Source recipe not found: {target}")
+            raise typer.Exit(code=1)
     else:
-        cfg = build_config(ns.stryx_schema, overrides)
+        cfg = build_config(c.schema, overrides)
         lineage = None
         name_label = "defaults"
 
@@ -160,7 +241,7 @@ def cmd_try(ns: argparse.Namespace) -> Any:
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
     name = f"{timestamp}_{petname.generate(2)}"
 
-    out_dir = ns.configs_dir / "scratches"
+    out_dir = c.configs_dir / "scratches"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{name}.yaml"
 
@@ -168,27 +249,27 @@ def cmd_try(ns: argparse.Namespace) -> Any:
     save_recipe(
         path=out_path,
         cfg_data=cfg.model_dump(mode="python"),
-        schema_cls=ns.stryx_schema,
+        schema_cls=c.schema,
         overrides=overrides,
         kind="scratch",
         source=lineage,
-        description=getattr(ns, "message", None),
+        description=message,
         force=False,
     )
 
     print(f"Running scratch: scratches/{name}.yaml")
 
     return _execute(
-        ns,
+        c,
         cfg,
         source={"kind": "scratch", "path": str(out_path), "name": name_label},
         overrides=overrides,
-        run_id_override=getattr(ns, "run_id", None),
+        run_id_override=run_id,
     )
 
 
 def _execute(
-    ns: argparse.Namespace,
+    c: Ctx,
     cfg: Any,
     source: dict[str, Any],
     overrides: list[str],
@@ -203,29 +284,30 @@ def _execute(
     # 2. Setup Manifest (only on rank 0)
     rank = get_rank()
     if rank == 0:
-        record_run_manifest(ns, cfg, run_id, source, overrides)
+        record_run_manifest(c, cfg, run_id, source, overrides)
 
-    manifest_path = ns.runs_dir / run_id / "manifest.yaml"
+    manifest_path = c.runs_dir / run_id / "manifest.yaml"
 
     # 3. Execute User Function
     with RunContext(manifest_path, rank) as run_ctx:
-        result = ns.stryx_func(cfg)
+        result = c.func(cfg)
         run_ctx.record_result(result)
         return result
 
 
-def cmd_list_configs(ns: argparse.Namespace) -> None:
-    """Handle: list configs - show all recipes in a smart table."""
-    if not ns.configs_dir.exists():
-        print(f"No recipes found in {ns.configs_dir}")
+def cmd_list_configs(ctx: typer.Context) -> None:
+    """List all saved experiment recipes and scratches."""
+    c: Ctx = ctx.obj
+    if not c.configs_dir.exists():
+        print(f"No recipes found in {c.configs_dir}")
         return
 
     # Collect all recipes
-    canonicals = sorted(ns.configs_dir.glob("*.yaml")) + sorted(
-        ns.configs_dir.glob("*.yml")
+    canonicals = sorted(c.configs_dir.glob("*.yaml")) + sorted(
+        c.configs_dir.glob("*.yml")
     )
 
-    scratches_dir = ns.configs_dir / "scratches"
+    scratches_dir = c.configs_dir / "scratches"
     scratches = []
     if scratches_dir.exists():
         scratches = sorted(scratches_dir.glob("*.yaml"), reverse=True)
@@ -266,16 +348,23 @@ def cmd_list_configs(ns: argparse.Namespace) -> None:
     _print_smart_table(rows, ["Name", "Created"], all_keys)
 
 
-def cmd_list_runs(ns: argparse.Namespace) -> None:
-    """Handle: list runs - show execution history."""
-    if not ns.runs_dir.exists():
-        print(f"No runs found in {ns.runs_dir}")
+def cmd_list_runs(
+    ctx: typer.Context,
+    status: Annotated[
+        str,
+        typer.Option(help="Filter runs by status (any, ok, failed)."),
+    ] = "any",
+) -> None:
+    """List execution history and run statuses."""
+    c: Ctx = ctx.obj
+    if not c.runs_dir.exists():
+        print(f"No runs found in {c.runs_dir}")
         return
 
     rows = []
     all_keys = set()
 
-    for p in ns.runs_dir.iterdir():
+    for p in c.runs_dir.iterdir():
         if not p.is_dir():
             continue
         manifest_path = p / "manifest.yaml"
@@ -287,14 +376,22 @@ def cmd_list_runs(ns: argparse.Namespace) -> None:
 
             # Extract key info
             run_id = data.get("run_id", p.name)
-            status = data.get("status", "UNKNOWN")
+            run_status = data.get("status", "UNKNOWN")
+            
+            # Filter
+            if status != "any":
+                if status == "ok" and run_status != "COMPLETED":
+                    continue
+                if status == "failed" and run_status != "FAILED":
+                    continue
+            
             created = data.get("created_at", "")[:16].replace("T", " ")
 
             # Config subset?
             config = data.get("config", {})
             flat_cfg = flatten_config(config)
 
-            row = {"Run ID": run_id, "Status": status, "Created": created, **flat_cfg}
+            row = {"Run ID": run_id, "Status": run_status, "Created": created, **flat_cfg}
             rows.append(row)
             all_keys.update(flat_cfg.keys())
         except Exception:
@@ -343,39 +440,59 @@ def _print_smart_table(
         print(line)
 
 
-def cmd_edit(ns: argparse.Namespace) -> None:
-    """Handle: edit <recipe> - launch TUI editor."""
+def cmd_edit(
+    ctx: typer.Context,
+    recipe: Annotated[str, typer.Argument(metavar="recipe", help="Name of the recipe to edit.")],
+) -> None:
+    """Open the interactive TUI editor for a recipe."""
     from stryx.tui import PydanticConfigTUI
-
-    # Use ns.recipe if present, or ns.target if repurposed (but edit has recipe arg)
-    name = ns.recipe
+    c: Ctx = ctx.obj
 
     try:
-        recipe_path = resolve_recipe_path(ns.configs_dir, name)
+        recipe_path = resolve_recipe_path(c.configs_dir, recipe)
     except FileNotFoundError:
-        # Offer to create it? For now just exit
-        raise SystemExit(f"Recipe not found: {name}\nCreate it first with: new {name}")
+        print(f"Recipe not found: {recipe}\nCreate it first with: new {recipe}")
+        raise typer.Exit(code=1)
 
-    tui = PydanticConfigTUI(ns.stryx_schema, recipe_path)
+    tui = PydanticConfigTUI(c.schema, recipe_path)
     tui.run()
 
 
-def cmd_show(ns: argparse.Namespace) -> None:
-    """Handle: show [target] [overrides...]"""
+def cmd_show(
+    ctx: typer.Context,
+    target: Annotated[
+        Optional[str],
+        typer.Argument(metavar="recipe", help="Recipe to display (defaults to schema defaults)."),
+    ] = None,
+    overrides: Annotated[
+        Optional[list[str]],
+        typer.Argument(metavar="overrides", help="Temporary overrides to apply before displaying."),
+    ] = None,
+) -> None:
+    """Show the resolved configuration with source annotations (default vs recipe vs override)."""
+    c: Ctx = ctx.obj
+    overrides = overrides or []
+
+    # Handle case where target is omitted but overrides are provided
+    if target and "=" in target:
+        overrides = [target] + overrides
+        target = None
+
     # Get schema defaults
     try:
-        defaults_instance = ns.stryx_schema()
+        defaults_instance = c.schema()
         schema_defaults = defaults_instance.model_dump(mode="python")
     except Exception as e:
-        raise SystemExit(f"Schema has required fields without defaults:\n{e}")
+        print(f"Schema has required fields without defaults:\n{e}")
+        raise typer.Exit(code=1)
 
     # Determine source file
     source_name = "defaults"
     recipe_data: dict[str, Any] | None = None
 
-    if ns.target:
+    if target:
         try:
-            path = resolve_recipe_path(ns.configs_dir, ns.target)
+            path = resolve_recipe_path(c.configs_dir, target)
             recipe_data = read_config_file(path)
             # Strip metadata
             if isinstance(recipe_data, dict):
@@ -384,7 +501,8 @@ def cmd_show(ns: argparse.Namespace) -> None:
                 }
             source_name = path.stem
         except FileNotFoundError:
-            raise SystemExit(f"Config not found: {ns.target}")
+            print(f"Config not found: {target}")
+            raise typer.Exit(code=1)
 
     # Build the config data (before validation, to track sources)
     if recipe_data is not None:
@@ -394,25 +512,29 @@ def cmd_show(ns: argparse.Namespace) -> None:
 
     # Track override paths and their previous values
     override_info: dict[str, Any] = {}  # path → previous value
-    for tok in ns.overrides:
-        key, _ = tok.split("=", 1)
-        key = key.strip()
-        # Get previous value before override
-        prev = _get_nested(data, key.split("."))
-        override_info[key] = prev
-        apply_override(data, tok)
+    for tok in overrides:
+        try:
+            key, _ = tok.split("=", 1)
+            key = key.strip()
+            # Get previous value before override
+            prev = _get_nested(data, key.split("."))
+            override_info[key] = prev
+            apply_override(data, tok)
+        except ValueError:
+            print(f"Invalid override format: {tok}")
+            raise typer.Exit(code=1)
 
     # Validate
-    cfg = validate_or_die(ns.stryx_schema, data, "show")
+    cfg = validate_or_die(c.schema, data, "show")
     final_data = cfg.model_dump(mode="python")
 
     # Print header
     header_parts = ["Config"]
     if source_name != "defaults":
         header_parts.append(f"recipe: {source_name}")
-    if ns.overrides:
+    if overrides:
         header_parts.append(
-            f"{len(ns.overrides)} override{'s' if len(ns.overrides) > 1 else ''}"
+            f"{len(overrides)} override{'s' if len(overrides) > 1 else ''}"
         )
     if len(header_parts) > 1:
         print(f"{header_parts[0]} ({', '.join(header_parts[1:])})")
@@ -431,25 +553,36 @@ def cmd_show(ns: argparse.Namespace) -> None:
     )
 
 
-def cmd_diff(ns: argparse.Namespace) -> None:
-    """Handle: diff <recipe_a> <recipe_b>"""
+def cmd_diff(
+    ctx: typer.Context,
+    recipe_a: Annotated[str, typer.Argument(metavar="recipe_a", help="First recipe to compare.")],
+    recipe_b: Annotated[
+        Optional[str],
+        typer.Argument(metavar="recipe_b", help="Second recipe to compare (defaults to schema defaults)."),
+    ] = None,
+) -> None:
+    """Compare two experiment recipes and highlight differences."""
+    c: Ctx = ctx.obj
+
     # Load both configs
     try:
-        path_a = resolve_recipe_path(ns.configs_dir, ns.recipe_a)
+        path_a = resolve_recipe_path(c.configs_dir, recipe_a)
         cfg_a = read_config_file(path_a)
     except FileNotFoundError:
-        raise SystemExit(f"Recipe not found: {ns.recipe_a}")
+        print(f"Recipe not found: {recipe_a}")
+        raise typer.Exit(code=1)
 
-    if ns.recipe_b:
+    if recipe_b:
         try:
-            path_b = resolve_recipe_path(ns.configs_dir, ns.recipe_b)
+            path_b = resolve_recipe_path(c.configs_dir, recipe_b)
             cfg_b = read_config_file(path_b)
-            name_b = ns.recipe_b
+            name_b = recipe_b
         except FileNotFoundError:
-            raise SystemExit(f"Recipe not found: {ns.recipe_b}")
+            print(f"Recipe not found: {recipe_b}")
+            raise typer.Exit(code=1)
     else:
         # Diff against defaults
-        base = ns.stryx_schema()
+        base = c.schema()
         cfg_b = base.model_dump(mode="python")
         name_b = "(defaults)"
 
@@ -464,7 +597,7 @@ def cmd_diff(ns: argparse.Namespace) -> None:
 
     all_keys = sorted(set(flat_a.keys()) | set(flat_b.keys()))
 
-    print(f"Diff: {ns.recipe_a} vs {name_b}")
+    print(f"Diff: {recipe_a} vs {name_b}")
     print("-" * 60)
 
     has_diff = False
@@ -488,15 +621,22 @@ def cmd_diff(ns: argparse.Namespace) -> None:
         print("No differences found.")
 
 
-def cmd_schema(ns: argparse.Namespace) -> None:
-    """Handle: schema - print the configuration schema."""
-    if getattr(ns, "json", False):
-        print(json.dumps(ns.stryx_schema.model_json_schema(), indent=2))
+def cmd_schema(
+    ctx: typer.Context,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", help="Output the schema in JSON format."),
+    ] = False,
+) -> None:
+    """Display the configuration schema and field documentation."""
+    c: Ctx = ctx.obj
+    if json_out:
+        print(json.dumps(c.schema.model_json_schema(), indent=2))
         return
 
-    print(f"Schema: {ns.stryx_schema.__module__}:{ns.stryx_schema.__name__}")
+    print(f"Schema: {c.schema.__module__}:{c.schema.__name__}")
 
-    fields = extract_fields(ns.stryx_schema)
+    fields = extract_fields(c.schema)
     if fields:
         print("Fields:")
         groups: dict[str, list[FieldInfo]] = {}

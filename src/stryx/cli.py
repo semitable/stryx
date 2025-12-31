@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import argparse
 import functools
 import sys
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
+import typer
 from pydantic import BaseModel
 
+from stryx.utils import Ctx
 from stryx.commands import (
     cmd_new,
     cmd_fork,
@@ -72,102 +73,6 @@ def cli(
     return decorator
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="stryx")
-    # global options
-    p.add_argument("--runs-dir", dest="runs_dir", type=Path)
-    p.add_argument("--configs-dir", dest="configs_dir", type=Path)
-
-    sub = p.add_subparsers(dest="cmd", required=False)
-    p.set_defaults(handler=lambda ns: p.print_help())
-
-    # list <configs|runs>
-    p_list = sub.add_parser(
-        "list",
-        help="List experiments or execution runs",
-        description="List and compare experiment configurations or review execution history.",
-    )
-    sub_list = p_list.add_subparsers(dest="what", required=False)
-    p_list.set_defaults(handler=lambda ns: p_list.print_help())
-
-    p_list_cfg = sub_list.add_parser("configs", help="List saved experiment recipes")
-    p_list_cfg.set_defaults(handler=cmd_list_configs)
-
-    p_list_runs = sub_list.add_parser("runs", help="List execution history")
-    p_list_runs.add_argument("--status", default="any", choices=["any", "ok", "failed"])
-    p_list_runs.set_defaults(handler=cmd_list_runs)
-
-    p_new = sub.add_parser("new", help="Create a fresh experiment recipe")
-    p_new.add_argument("recipe", nargs="?")
-    p_new.add_argument("-m", "--message", help="Description of the experiment")
-    p_new.add_argument("--force", action="store_true", help="Overwrite existing recipe")
-    p_new.add_argument("overrides", nargs=argparse.REMAINDER)
-    p_new.set_defaults(handler=cmd_new)
-
-    # try [target] -- overrides...
-    p_try = sub.add_parser(
-        "try", help="Run an experimental variant (saved to scratches)"
-    )
-    p_try.add_argument("target", nargs="?")
-    p_try.add_argument("--run-id", help="Explicitly set run id")
-    p_try.add_argument("-m", "--message", help="Description for scratch metadata")
-    p_try.add_argument("overrides", nargs=argparse.REMAINDER)
-    p_try.set_defaults(handler=cmd_try)
-
-    # run <recipe|path>
-    p_run = sub.add_parser("run", help="Run an existing recipe exactly")
-    p_run.add_argument("target")
-    p_run.add_argument("--run-id", help="Explicitly set run id")
-    p_run.set_defaults(handler=cmd_run)
-
-    # fork <source> <name> -- overrides...
-    p_fork = sub.add_parser("fork", help="Fork an existing recipe with modifications")
-    p_fork.add_argument("source")
-    p_fork.add_argument("name")
-    p_fork.add_argument("-m", "--message", help="Description of the experiment")
-    p_fork.add_argument(
-        "--force", action="store_true", help="Overwrite existing recipe"
-    )
-    p_fork.add_argument("overrides", nargs=argparse.REMAINDER)
-    p_fork.set_defaults(handler=cmd_fork)
-
-    # edit <recipe>
-    p_edit = sub.add_parser("edit", help="Edit a recipe interactively (TUI)")
-    p_edit.add_argument("recipe")
-    p_edit.set_defaults(handler=cmd_edit)
-
-    # show [target] [overrides...]
-    p_show = sub.add_parser(
-        "show", help="Display configuration with source annotations"
-    )
-    p_show.add_argument("target", nargs="?")
-    p_show.add_argument("overrides", nargs=argparse.REMAINDER)
-    p_show.set_defaults(handler=cmd_show)
-
-    # diff <recipe_a> [recipe_b]
-    p_diff = sub.add_parser("diff", help="Compare two experiment recipes")
-    p_diff.add_argument("recipe_a")
-    p_diff.add_argument("recipe_b", nargs="?")
-    p_diff.set_defaults(handler=cmd_diff)
-
-    # schema
-    p_schema = sub.add_parser("schema", help="Show the configuration schema")
-    p_schema.add_argument("--json", action="store_true", help="Output schema as JSON")
-    p_schema.set_defaults(handler=cmd_schema)
-
-    return p
-
-
-def normalize_overrides(tokens: list[str]) -> list[str]:
-    """Remove the optional '--' separator if present in the captured tokens.
-
-    argparse.REMAINDER captures everything after the command, including the
-    double-dash separator often used to distinguish positional arguments
-    from overrides.
-    """
-    return tokens[1:] if tokens[:1] == ["--"] else tokens
-
-
 def dispatch(
     schema: type[BaseModel],
     configs_dir: Path,
@@ -175,26 +80,57 @@ def dispatch(
     func: Callable[[Any], Any],
     argv: list[str],
 ) -> Any:
-    parser = build_parser()
-    ns = parser.parse_args(argv)
+    """Parse CLI arguments and execute the corresponding command handler."""
+    app = typer.Typer(
+        name="stryx",
+        add_completion=False,
+        help="Experiment management CLI",
+        no_args_is_help=True,
+    )
 
-    # Attach context to namespace
-    ns.stryx_schema = schema
-    ns.stryx_func = func
+    # Register commands
+    app.command(name="new")(cmd_new)
+    app.command(name="fork")(cmd_fork)
+    app.command(name="run")(cmd_run)
+    app.command(name="try")(cmd_try)
+    
+    # Subcommands for list (using a sub-app)
+    list_app = typer.Typer(name="list", help="List experiments or execution runs")
+    list_app.command(name="configs")(cmd_list_configs)
+    list_app.command(name="runs")(cmd_list_runs)
+    app.add_typer(list_app, name="list")
 
-    # resolve effective dirs (use default if not in args)
-    if ns.runs_dir:
-        ns.runs_dir = ns.runs_dir.expanduser()
-    else:
-        ns.runs_dir = runs_dir
+    app.command(name="edit")(cmd_edit)
+    app.command(name="show")(cmd_show)
+    app.command(name="diff")(cmd_diff)
+    app.command(name="schema")(cmd_schema)
 
-    if ns.configs_dir:
-        ns.configs_dir = ns.configs_dir.expanduser()
-    else:
-        ns.configs_dir = configs_dir
+    @app.callback()
+    def main(
+        ctx: typer.Context,
+        runs_dir_opt: Path = typer.Option(None, "--runs-dir", help="Override runs directory"),
+        configs_dir_opt: Path = typer.Option(None, "--configs-dir", help="Override configs directory"),
+    ):
+        """
+        Stryx CLI entry point.
+        """
+        final_runs = runs_dir_opt.expanduser() if runs_dir_opt else runs_dir
+        final_configs = configs_dir_opt.expanduser() if configs_dir_opt else configs_dir
+        
+        ctx.obj = Ctx(
+            schema=schema,
+            configs_dir=final_configs,
+            runs_dir=final_runs,
+            func=func,
+        )
 
-    # normalize override lists if this command has them
-    if hasattr(ns, "overrides"):
-        ns.overrides = normalize_overrides(ns.overrides)
-
-    return ns.handler(ns)
+    # Execute
+    # We use standalone_mode=False to handle exceptions ourselves if needed,
+    # but strictly speaking, standard Typer behavior (True) is usually what we want for CLI.
+    # However, to avoid 'SystemExit: 0' showing up in traceback during some invocations, 
+    # we can wrap it.
+    try:
+        app(argv)
+    except SystemExit as e:
+        # Re-raise to actually exit the process
+        raise e

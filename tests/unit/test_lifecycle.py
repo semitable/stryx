@@ -1,13 +1,12 @@
 from __future__ import annotations
-import argparse
 import pytest
 from unittest.mock import MagicMock, patch
 from stryx.lifecycle import RunContext, TeeStream, record_run_manifest
-from stryx.utils import read_yaml, write_yaml
+from stryx.utils import read_yaml, write_yaml, Ctx
 
 @pytest.fixture
-def mock_ns(tmp_path):
-    """Create a mock namespace acting as context."""
+def mock_ctx(tmp_path):
+    """Create a mock context."""
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir()
     
@@ -15,11 +14,11 @@ def mock_ns(tmp_path):
     mock_schema.__module__ = "test_module"
     mock_schema.__name__ = "TestSchema"
     
-    return argparse.Namespace(
-        stryx_schema=mock_schema,
+    return Ctx(
+        schema=mock_schema,
         configs_dir=tmp_path / "configs",
         runs_dir=runs_dir,
-        stryx_func=lambda x: None
+        func=lambda x: None
     )
 
 def test_tee_stream(tmp_path):
@@ -101,7 +100,7 @@ def test_run_context_non_zero_rank(tmp_path):
     assert "Rank 1 working" in log_file.read_text()
 
 @patch("stryx.lifecycle._run_cmd")
-def test_record_manifest_git_info(mock_run_cmd, mock_ns):
+def test_record_manifest_git_info(mock_run_cmd, mock_ctx):
     """Test that git info is captured in manifest."""
     # Mock git responses
     def side_effect(cmd, **kwargs):
@@ -122,9 +121,9 @@ def test_record_manifest_git_info(mock_run_cmd, mock_ns):
     cfg = MagicMock()
     cfg.model_dump.return_value = {"param": 1}
     
-    record_run_manifest(mock_ns, cfg, "run_git", {"name": "src"}, [])
+    record_run_manifest(mock_ctx, cfg, "run_git", {"name": "src"}, [])
     
-    manifest = read_yaml(mock_ns.runs_dir / "run_git" / "manifest.yaml")
+    manifest = read_yaml(mock_ctx.runs_dir / "run_git" / "manifest.yaml")
     
     assert manifest["git"]["sha"] == "abcdef123"
     assert manifest["git"]["dirty"] is True
@@ -132,19 +131,19 @@ def test_record_manifest_git_info(mock_run_cmd, mock_ns):
     assert "git.patch" in manifest["git"]["patch_file"]
     
     # Verify patch file created
-    patch_path = mock_ns.runs_dir / "run_git" / "git.patch"
+    patch_path = mock_ctx.runs_dir / "run_git" / "git.patch"
     assert patch_path.read_text().strip() == "diff content"
 
 @patch("stryx.lifecycle._run_cmd")
-def test_record_manifest_no_git(mock_run_cmd, mock_ns):
+def test_record_manifest_no_git(mock_run_cmd, mock_ctx):
     """Test manifest creation outside git repo."""
     mock_run_cmd.return_value = None # Git commands fail/return empty
     
     cfg = MagicMock()
     cfg.model_dump.return_value = {}
     
-    record_run_manifest(mock_ns, cfg, "run_no_git", {}, [])
+    record_run_manifest(mock_ctx, cfg, "run_no_git", {}, [])
     
-    manifest = read_yaml(mock_ns.runs_dir / "run_no_git" / "manifest.yaml")
+    manifest = read_yaml(mock_ctx.runs_dir / "run_no_git" / "manifest.yaml")
     assert manifest["git"]["sha"] is None
     assert "patch_file" not in manifest["git"]

@@ -1,8 +1,10 @@
 from __future__ import annotations
-import argparse
 import pytest
+from unittest.mock import MagicMock
+import typer
 from pydantic import BaseModel, ConfigDict, Field
 from stryx.commands import cmd_schema
+from stryx.utils import Ctx
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -10,22 +12,20 @@ class Config(BaseModel):
     value: int = 1
 
 @pytest.fixture
-def base_ns(tmp_path):
-    """Create a base namespace with context fields."""
-    return argparse.Namespace(
-        stryx_schema=Config,
+def mock_ctx(tmp_path):
+    c = Ctx(
+        schema=Config,
         configs_dir=tmp_path / "configs",
         runs_dir=tmp_path / "runs",
-        stryx_func=lambda x: None
+        func=lambda x: None
     )
+    ctx = MagicMock(spec=typer.Context)
+    ctx.obj = c
+    return ctx
 
-def test_schema_printing(base_ns, capsys):
+def test_schema_printing(mock_ctx, capsys):
     """Test that schema fields and descriptions are printed."""
-    # Add command-specific args
-    ns = argparse.Namespace(**vars(base_ns))
-    ns.json = False
-    
-    cmd_schema(ns)
+    cmd_schema(mock_ctx)
     
     captured = capsys.readouterr()
     assert "Schema: test_cmd_schema:Config" in captured.out
@@ -34,15 +34,11 @@ def test_schema_printing(base_ns, capsys):
     assert "# Experiment name" in captured.out
     assert "value: int = 1" in captured.out
 
-def test_schema_json(base_ns, capsys):
+def test_schema_json(mock_ctx, capsys):
     """Test that schema can be printed as JSON."""
-    ns = argparse.Namespace(**vars(base_ns))
-    ns.json = True
-    
-    cmd_schema(ns)
+    cmd_schema(mock_ctx, json_out=True)
     
     captured = capsys.readouterr()
-    # It should be valid JSON and contain our fields
     import json
     data = json.loads(captured.out)
     assert data["title"] == "Config"

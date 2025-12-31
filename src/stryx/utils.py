@@ -4,12 +4,21 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+from dataclasses import dataclass
 
 import yaml
 
 # Type aliases
 FieldPath = tuple[str | int, ...]
+
+
+@dataclass
+class Ctx:
+    schema: type
+    configs_dir: Path
+    runs_dir: Path
+    func: Callable[[Any], Any]
 
 
 # ============================================================================
