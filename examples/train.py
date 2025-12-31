@@ -1,29 +1,3 @@
-"""Example training script using Stryx.
-
-Usage:
-    # Run with defaults
-    python train.py
-
-    # Run with overrides
-    python train.py lr=1e-4 train.steps=500
-
-    # Create a recipe
-    python train.py new my_exp exp_name=my_exp optim.lr=1e-4
-
-    # Copy and modify
-    python train.py new my_exp_v2 --from my_exp train.batch_size=64
-
-    # Run from recipe
-    python train.py run my_exp
-
-    # Edit recipe interactively
-    python train.py edit my_exp
-
-    # Run from explicit path (contains / or ends in .yaml)
-    python train.py run configs/my_exp.yaml
-    python train.py run ../other/config.yaml
-"""
-
 from __future__ import annotations
 
 from typing import Literal, Union
