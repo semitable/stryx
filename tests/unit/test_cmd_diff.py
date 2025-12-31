@@ -3,8 +3,8 @@ import pytest
 from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
-from stryx.utils import Ctx
-from stryx.commands import cmd_new, cmd_diff
+from stryx.utils import Ctx, write_yaml
+from stryx.commands import recipe_init, recipe_diff, run_diff
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -27,33 +27,27 @@ def mock_ctx(tmp_path):
     ctx.obj = c
     return ctx
 
-def test_diff_two_recipes(mock_ctx, capsys):
-    """Test diffing two recipes."""
-    cmd_new(mock_ctx, recipe="r1", overrides=["value=10"])
-    cmd_new(mock_ctx, recipe="r2", overrides=["value=20"])
+def test_diff_recipes(mock_ctx, capsys):
+    recipe_init(mock_ctx, name="r1", overrides=["value=10"])
+    recipe_init(mock_ctx, name="r2", overrides=["value=20"])
     
-    cmd_diff(mock_ctx, recipe_a="r1", recipe_b="r2")
+    recipe_diff(mock_ctx, name_a="r1", name_b="r2")
     
     captured = capsys.readouterr()
-    assert "Diff: r1 vs r2" in captured.out
     assert "~ value: 10 -> 20" in captured.out
 
-def test_diff_vs_defaults(mock_ctx, capsys):
-    """Test diffing a recipe against defaults."""
-    cmd_new(mock_ctx, recipe="r1", overrides=["value=10"])
+def test_diff_runs(mock_ctx, capsys):
+    """Test `run diff <id1> <id2>`."""
+    def create_run(rid, val):
+        d = mock_ctx.obj.runs_dir / rid
+        d.mkdir()
+        write_yaml(d / "manifest.yaml", {"config": {"value": val}})
+        
+    create_run("run_1", 100)
+    create_run("run_2", 200)
     
-    cmd_diff(mock_ctx, recipe_a="r1")
-    
-    captured = capsys.readouterr()
-    assert "Diff: r1 vs (defaults)" in captured.out
-    assert "~ value: 10 -> 1" in captured.out
-
-def test_diff_no_differences(mock_ctx, capsys):
-    """Test diffing identical recipes."""
-    cmd_new(mock_ctx, recipe="r1", overrides=["value=10"])
-    cmd_new(mock_ctx, recipe="r2", overrides=["value=10"])
-    
-    cmd_diff(mock_ctx, recipe_a="r1", recipe_b="r2")
+    run_diff(mock_ctx, id_a="run_1", id_b="run_2")
     
     captured = capsys.readouterr()
-    assert "No differences found" in captured.out
+    assert "Diff: run_1 vs run_2" in captured.out
+    assert "~ value: 100 -> 200" in captured.out

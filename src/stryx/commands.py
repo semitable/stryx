@@ -1,7 +1,8 @@
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, List, Optional
 
 import typer
 from filelock import FileLock
@@ -26,55 +27,54 @@ from stryx.utils import (
     save_recipe,
 )
 
+# ============================================================================
+# Recipe Commands
+# ============================================================================
 
-def cmd_new(
+def recipe_init(
     ctx: typer.Context,
-    recipe: Annotated[
+    name: Annotated[
         Optional[str],
         typer.Argument(
-            metavar="recipe",
-            help="Optional name for the recipe. If omitted, an auto-incrementing name like 'exp_001' is used.",
+            metavar="name",
+            help="Name for the recipe. If omitted, uses 'exp_XXX'.",
         ),
     ] = None,
     overrides: Annotated[
-        Optional[list[str]],
+        Optional[List[str]],
         typer.Argument(
             metavar="overrides",
-            help="Configuration overrides in 'key=value' format.",
+            help="Configuration overrides (key=value).",
         ),
     ] = None,
     message: Annotated[
         Optional[str],
-        typer.Option("--message", "-m", help="Short description to store in the recipe metadata."),
+        typer.Option("--message", "-m", help="Description for metadata."),
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Overwrite the recipe if it already exists."),
+        typer.Option("--force", help="Overwrite existing recipe."),
     ] = False,
 ) -> Path:
-    """Create a fresh experiment recipe from defaults."""
+    """Create a new recipe from defaults."""
     c: Ctx = ctx.obj
     overrides = overrides or []
 
-    # Handle case where recipe name is omitted but overrides are provided
-    # e.g. `stryx new optim.lr=1` -> recipe="optim.lr=1", overrides=[]
-    if recipe and "=" in recipe:
-        overrides = [recipe] + overrides
-        recipe = None
+    # Smart parse: if name looks like override, shift it
+    if name and "=" in name:
+        overrides = [name] + overrides
+        name = None
 
     cfg = build_config(c.schema, overrides)
     cfg_data = cfg.model_dump(mode="python")
 
-    # Create directory
     c.configs_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        if recipe:
-            name = recipe
+        if name:
             if "." not in name:
                 name = f"{name}.yaml"
             out_path = c.configs_dir / name
-
             save_recipe(
                 path=out_path,
                 cfg_data=cfg_data,
@@ -85,12 +85,10 @@ def cmd_new(
                 kind="canonical",
             )
         else:
-            # Auto-generate name with lock
             lock_path = c.configs_dir / ".stryx.lock"
             with FileLock(lock_path):
                 name = get_next_sequential_name(c.configs_dir)
                 out_path = c.configs_dir / f"{name}.yaml"
-
                 save_recipe(
                     path=out_path,
                     cfg_data=cfg_data,
@@ -100,37 +98,35 @@ def cmd_new(
                     force=False,
                     kind="canonical",
                 )
-
     except FileExistsError as e:
         print(f"Error: {e} Use --force to overwrite.")
         raise typer.Exit(code=1)
 
-    print(f"Created recipe: {out_path}")
+    print(f"Initialized recipe: {out_path}")
     return out_path
 
 
-def cmd_fork(
+def recipe_clone(
     ctx: typer.Context,
-    source: Annotated[str, typer.Argument(metavar="source", help="Source recipe name or file path.")],
-    name: Annotated[str, typer.Argument(metavar="name", help="Name for the new forked recipe.")],
+    source: Annotated[str, typer.Argument(help="Source recipe name/path.")],
+    name: Annotated[str, typer.Argument(help="New recipe name.")],
     overrides: Annotated[
-        Optional[list[str]],
-        typer.Argument(metavar="overrides", help="Configuration overrides in 'key=value' format."),
+        Optional[List[str]],
+        typer.Argument(help="Overrides to apply."),
     ] = None,
     message: Annotated[
         Optional[str],
-        typer.Option("--message", "-m", help="Short description for the new recipe."),
+        typer.Option("--message", "-m", help="Description."),
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Overwrite the destination recipe if it exists."),
+        typer.Option("--force", help="Overwrite destination."),
     ] = False,
 ) -> Path:
-    """Fork an existing recipe and apply modifications."""
+    """Clone (fork) a recipe with modifications."""
     c: Ctx = ctx.obj
     overrides = overrides or []
 
-    # Resolve and Load Source
     try:
         from_path = resolve_recipe_path(c.configs_dir, source)
     except FileNotFoundError:
@@ -140,7 +136,6 @@ def cmd_fork(
     cfg = load_and_override(c.schema, from_path, overrides)
     cfg_data = cfg.model_dump(mode="python")
 
-    # Determine output path
     if "." not in name:
         name = f"{name}.yaml"
     out_path = c.configs_dir / name
@@ -162,161 +157,98 @@ def cmd_fork(
         print(f"Error: {e} Use --force to overwrite.")
         raise typer.Exit(code=1)
 
-    print(f"Forked recipe: {out_path}")
+    print(f"Cloned recipe: {out_path}")
     return out_path
 
 
-def cmd_run(
+def recipe_edit(
     ctx: typer.Context,
-    target: Annotated[str, typer.Argument(metavar="recipe", help="Recipe name or path to execute.")],
-    run_id: Annotated[
-        Optional[str],
-        typer.Option("--run-id", help="Manually specify a unique ID for this run."),
-    ] = None,
-) -> Any:
-    """Execute a specific experiment recipe exactly as defined."""
+    name: Annotated[str, typer.Argument(help="Recipe to edit.")],
+) -> None:
+    """Edit a recipe interactively (TUI)."""
+    from stryx.tui import PydanticConfigTUI
     c: Ctx = ctx.obj
+
     try:
-        path = resolve_recipe_path(c.configs_dir, target)
+        recipe_path = resolve_recipe_path(c.configs_dir, name)
     except FileNotFoundError:
-        print(f"Recipe not found: {target}")
+        print(f"Recipe not found: {name}")
         raise typer.Exit(code=1)
 
-    # Load config (run is strict, no overrides)
-    cfg = load_and_override(c.schema, path, [])
-
-    return _execute(
-        c,
-        cfg,
-        source={"kind": "file", "path": str(path), "name": path.stem},
-        overrides=[],
-        run_id_override=run_id,
-    )
+    tui = PydanticConfigTUI(c.schema, recipe_path)
+    tui.run()
 
 
-def cmd_try(
+def recipe_show(
     ctx: typer.Context,
-    target: Annotated[
+    name: Annotated[
         Optional[str],
-        typer.Argument(metavar="recipe", help="Optional base recipe to start from."),
+        typer.Argument(help="Recipe to show (default: defaults)."),
     ] = None,
     overrides: Annotated[
-        Optional[list[str]],
-        typer.Argument(metavar="overrides", help="Configuration overrides in 'key=value' format."),
+        Optional[List[str]],
+        typer.Argument(help="Overrides to apply temporarily."),
     ] = None,
-    message: Annotated[
-        Optional[str],
-        typer.Option("--message", "-m", help="Short description for the scratch metadata."),
-    ] = None,
-    run_id: Annotated[
-        Optional[str],
-        typer.Option("--run-id", help="Manually specify a unique ID for this run."),
-    ] = None,
-) -> Any:
-    """Run an experiment variant without saving a permanent recipe (saved to scratches)."""
+) -> None:
+    """Show recipe configuration and provenance."""
     c: Ctx = ctx.obj
     overrides = overrides or []
 
-    # If target token looks like an override (contains '='), shift it
-    if target and "=" in target:
-        overrides = [target] + overrides
-        target = None
+    if name and "=" in name:
+        overrides = [name] + overrides
+        name = None
 
-    # Resolve source
-    if target:
+    _show_config(c, name, overrides, title="Recipe")
+
+
+def recipe_diff(
+    ctx: typer.Context,
+    name_a: Annotated[str, typer.Argument(help="First recipe.")],
+    name_b: Annotated[
+        Optional[str],
+        typer.Argument(help="Second recipe (default: defaults)."),
+    ] = None,
+) -> None:
+    """Compare two recipes."""
+    c: Ctx = ctx.obj
+
+    try:
+        path_a = resolve_recipe_path(c.configs_dir, name_a)
+        cfg_a = read_config_file(path_a)
+    except FileNotFoundError:
+        print(f"Recipe not found: {name_a}")
+        raise typer.Exit(code=1)
+
+    if name_b:
         try:
-            from_path = resolve_recipe_path(c.configs_dir, target)
-            cfg = load_and_override(c.schema, from_path, overrides)
-            lineage = target
-            name_label = from_path.stem
+            path_b = resolve_recipe_path(c.configs_dir, name_b)
+            cfg_b = read_config_file(path_b)
+            label_b = name_b
         except FileNotFoundError:
-            print(f"Source recipe not found: {target}")
+            print(f"Recipe not found: {name_b}")
             raise typer.Exit(code=1)
     else:
-        cfg = build_config(c.schema, overrides)
-        lineage = None
-        name_label = "defaults"
+        base = c.schema()
+        cfg_b = base.model_dump(mode="python")
+        label_b = "(defaults)"
 
-    # Generate scratch name
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-    name = f"{timestamp}_{petname.generate(2)}"
-
-    out_dir = c.configs_dir / "scratches"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{name}.yaml"
-
-    # Save scratch
-    save_recipe(
-        path=out_path,
-        cfg_data=cfg.model_dump(mode="python"),
-        schema_cls=c.schema,
-        overrides=overrides,
-        kind="scratch",
-        source=lineage,
-        description=message,
-        force=False,
-    )
-
-    print(f"Running scratch: scratches/{name}.yaml")
-
-    return _execute(
-        c,
-        cfg,
-        source={"kind": "scratch", "path": str(out_path), "name": name_label},
-        overrides=overrides,
-        run_id_override=run_id,
-    )
+    _diff_dicts(cfg_a, cfg_b, name_a, label_b)
 
 
-def _execute(
-    c: Ctx,
-    cfg: Any,
-    source: dict[str, Any],
-    overrides: list[str],
-    run_id_override: str | None = None,
-) -> Any:
-    """Orchestrate the execution lifecycle."""
-    # 1. Derive Run ID
-    run_id = derive_run_id(
-        label=source.get("name") or "run", run_id_override=run_id_override
-    )
-
-    # 2. Setup Manifest (only on rank 0)
-    rank = get_rank()
-    if rank == 0:
-        record_run_manifest(c, cfg, run_id, source, overrides)
-
-    manifest_path = c.runs_dir / run_id / "manifest.yaml"
-
-    # 3. Execute User Function
-    with RunContext(manifest_path, rank) as run_ctx:
-        result = c.func(cfg)
-        run_ctx.record_result(result)
-        return result
-
-
-def cmd_list_configs(ctx: typer.Context) -> None:
-    """List all saved experiment recipes and scratches."""
+def recipe_list(ctx: typer.Context) -> None:
+    """List all recipes."""
     c: Ctx = ctx.obj
     if not c.configs_dir.exists():
         print(f"No recipes found in {c.configs_dir}")
         return
 
-    # Collect all recipes
     canonicals = sorted(c.configs_dir.glob("*.yaml")) + sorted(
         c.configs_dir.glob("*.yml")
     )
-
     scratches_dir = c.configs_dir / "scratches"
-    scratches = []
-    if scratches_dir.exists():
-        scratches = sorted(scratches_dir.glob("*.yaml"), reverse=True)
+    scratches = sorted(scratches_dir.glob("*.yaml"), reverse=True) if scratches_dir.exists() else []
 
     all_recipes = canonicals + scratches
-    if not all_recipes:
-        print("No recipes found.")
-        return
-
     rows = []
     all_keys = set()
 
@@ -324,21 +256,14 @@ def cmd_list_configs(ctx: typer.Context) -> None:
         try:
             data = read_yaml(p)
             meta = data.get("__stryx__", {}) if isinstance(data, dict) else {}
-            created = meta.get("created_at", "")
-            if created:
-                created = created[:16].replace("T", " ")  # Simplified ISO format
-
-            # Clean data for interesting columns
+            created = meta.get("created_at", "")[:16].replace("T", " ")
             if isinstance(data, dict):
                 clean = {k: v for k, v in data.items() if not k.startswith("__")}
             else:
                 clean = {}
-
             flat = flatten_config(clean)
-
             is_scratch = "scratches" in p.parts
             name = f"scratches/{p.stem}" if is_scratch else p.stem
-
             row = {"Name": name, "Created": created, **flat}
             rows.append(row)
             all_keys.update(flat.keys())
@@ -348,14 +273,137 @@ def cmd_list_configs(ctx: typer.Context) -> None:
     _print_smart_table(rows, ["Name", "Created"], all_keys)
 
 
-def cmd_list_runs(
+def recipe_schema(
     ctx: typer.Context,
-    status: Annotated[
-        str,
-        typer.Option(help="Filter runs by status (any, ok, failed)."),
-    ] = "any",
+    json_out: Annotated[bool, typer.Option("--json", help="JSON output")] = False,
 ) -> None:
-    """List execution history and run statuses."""
+    """Print configuration schema."""
+    c: Ctx = ctx.obj
+    if json_out:
+        print(json.dumps(c.schema.model_json_schema(), indent=2))
+        return
+
+    print(f"Schema: {c.schema.__module__}:{c.schema.__name__}")
+    fields = extract_fields(c.schema)
+    if fields:
+        print("Fields:")
+        # Grouping logic... same as before
+        groups = {}
+        order = []
+        for field in fields:
+            g = field.path.split(".", 1)[0]
+            if g not in groups:
+                groups[g] = []
+                order.append(g)
+            groups[g].append(field)
+        
+        for g in order:
+            entries = groups[g]
+            parent = next((e for e in entries if e.path == g), None)
+            children = [e for e in entries if e.path != g]
+            
+            if parent:
+                for line in _format_field_lines("  ", g, parent.type_str, parent.default_str, parent.description):
+                    print(line)
+            else:
+                print(f"  {g}:")
+            
+            for child in children:
+                label = child.path[len(g)+1:] if child.path.startswith(f"{g}.") else child.path
+                for line in _format_field_lines("    ", label, child.type_str, child.default_str, child.description):
+                    print(line)
+            print()
+
+
+# ============================================================================
+# Run Commands
+# ============================================================================
+
+def run_exec(
+    ctx: typer.Context,
+    target: Annotated[
+        Optional[str],
+        typer.Argument(metavar="recipe", help="Recipe to execute (or overrides)."),
+    ] = None,
+    overrides: Annotated[
+        Optional[List[str]],
+        typer.Argument(metavar="overrides", help="Configuration overrides."),
+    ] = None,
+    dry: Annotated[bool, typer.Option("--dry", help="Dry run.")] = False,
+    run_id: Annotated[Optional[str], typer.Option("--run-id", help="Explicit Run ID.")] = None,
+) -> Any:
+    """Start an experiment run."""
+    c: Ctx = ctx.obj
+    overrides = overrides or []
+    
+    # Handle implicit overrides
+    if target and "=" in target:
+        overrides = [target] + overrides
+        target = None
+            
+    # Resolve Config
+    lineage = None
+    name_label = "defaults"
+    
+    if target:
+        try:
+            path = resolve_recipe_path(c.configs_dir, target)
+            cfg = load_and_override(c.schema, path, overrides)
+            lineage = target
+            name_label = path.stem
+        except FileNotFoundError:
+            print(f"Recipe not found: {target}")
+            raise typer.Exit(code=1)
+    else:
+        cfg = build_config(c.schema, overrides)
+
+    if dry:
+        print("Dry run: Config resolved successfully.")
+        return
+
+    # Scratch logic
+    is_variant = bool(overrides) or (target is None)
+    source_info = {}
+    
+    if is_variant:
+        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+        name = f"{timestamp}_{petname.generate(2)}"
+        out_dir = c.configs_dir / "scratches"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{name}.yaml"
+        
+        save_recipe(
+            path=out_path,
+            cfg_data=cfg.model_dump(mode="python"),
+            schema_cls=c.schema,
+            overrides=overrides,
+            kind="scratch",
+            source=lineage,
+            force=False
+        )
+        print(f"Running scratch: scratches/{name}.yaml")
+        source_info = {"kind": "scratch", "path": str(out_path), "name": name_label}
+    else:
+        path = resolve_recipe_path(c.configs_dir, target)
+        source_info = {"kind": "file", "path": str(path), "name": path.stem}
+
+    # Execution
+    run_id = derive_run_id(label=source_info.get("name") or "run", run_id_override=run_id)
+    rank = get_rank()
+    
+    if rank == 0:
+        record_run_manifest(c, cfg, run_id, source_info, overrides)
+        
+    manifest_path = c.runs_dir / run_id / "manifest.yaml"
+    
+    with RunContext(manifest_path, rank) as run_ctx:
+        result = c.func(cfg)
+        run_ctx.record_result(result)
+        return result
+
+
+def run_list(ctx: typer.Context) -> None:
+    """List execution history."""
     c: Ctx = ctx.obj
     if not c.runs_dir.exists():
         print(f"No runs found in {c.runs_dir}")
@@ -365,43 +413,150 @@ def cmd_list_runs(
     all_keys = set()
 
     for p in c.runs_dir.iterdir():
-        if not p.is_dir():
-            continue
+        if not p.is_dir(): continue
         manifest_path = p / "manifest.yaml"
-        if not manifest_path.exists():
-            continue
+        if not manifest_path.exists(): continue
 
         try:
             data = read_yaml(manifest_path)
-
-            # Extract key info
             run_id = data.get("run_id", p.name)
-            run_status = data.get("status", "UNKNOWN")
-            
-            # Filter
-            if status != "any":
-                if status == "ok" and run_status != "COMPLETED":
-                    continue
-                if status == "failed" and run_status != "FAILED":
-                    continue
-            
+            status = data.get("status", "UNKNOWN")
             created = data.get("created_at", "")[:16].replace("T", " ")
-
-            # Config subset?
             config = data.get("config", {})
             flat_cfg = flatten_config(config)
-
-            row = {"Run ID": run_id, "Status": run_status, "Created": created, **flat_cfg}
+            row = {"Run ID": run_id, "Status": status, "Created": created, **flat_cfg}
             rows.append(row)
             all_keys.update(flat_cfg.keys())
         except Exception:
             continue
 
-    # Sort by created desc
     rows.sort(key=lambda x: x.get("Created", ""), reverse=True)
-
     _print_smart_table(rows, ["Run ID", "Status", "Created"], all_keys)
 
+
+def run_show(ctx: typer.Context, run_id: Annotated[str, typer.Argument(help="Run ID to show")]) -> None:
+    """Show configuration for a run."""
+    c: Ctx = ctx.obj
+    path = c.runs_dir / run_id / "manifest.yaml"
+    if not path.exists():
+        print(f"Run not found: {run_id}")
+        raise typer.Exit(code=1)
+    
+    data = read_yaml(path)
+    config = data.get("config", {})
+    
+    defaults_instance = c.schema()
+    schema_defaults = defaults_instance.model_dump(mode="python")
+    
+    print(f"Run: {run_id}")
+    print(f"Status: {data.get('status')}")
+    print("=" * 60)
+    
+    _print_with_sources(config, schema_defaults, None, {}, "", 0)
+
+
+def run_diff(ctx: typer.Context, id_a: str, id_b: str) -> None:
+    """Diff two runs."""
+    c: Ctx = ctx.obj
+    
+    def load_run(rid):
+        p = c.runs_dir / rid / "manifest.yaml"
+        if not p.exists():
+            print(f"Run not found: {rid}")
+            raise typer.Exit(code=1)
+        return read_yaml(p).get("config", {})
+
+    cfg_a = load_run(id_a)
+    cfg_b = load_run(id_b)
+    
+    _diff_dicts(cfg_a, cfg_b, id_a, id_b)
+
+
+# ============================================================================
+# Shared Helpers
+# ============================================================================
+
+_NOT_FOUND = object()
+
+def _get_nested(data: dict[str, Any], path: list[str]) -> Any:
+    current = data
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return _NOT_FOUND
+        current = current[key]
+    return current
+
+def _show_config(c: Ctx, target: str | None, overrides: list[str], title: str) -> None:
+    # Schema defaults
+    try:
+        defaults = c.schema().model_dump(mode="python")
+    except Exception as e:
+        print(f"Schema error: {e}")
+        raise typer.Exit(code=1)
+
+    recipe_data = None
+    source_name = "defaults"
+
+    if target:
+        try:
+            path = resolve_recipe_path(c.configs_dir, target)
+            recipe_data = read_config_file(path)
+            if isinstance(recipe_data, dict):
+                recipe_data = {k: v for k, v in recipe_data.items() if not k.startswith("__")}
+            source_name = path.stem
+        except FileNotFoundError:
+            print(f"Config not found: {target}")
+            raise typer.Exit(code=1)
+
+    data = dict(recipe_data) if recipe_data else dict(defaults)
+    override_info = {}
+    
+    for tok in overrides:
+        try:
+            key, _ = tok.split("=", 1)
+            key = key.strip()
+            override_info[key] = _get_nested(data, key.split("."))
+            apply_override(data, tok)
+        except ValueError:
+            print(f"Invalid override: {tok}")
+            raise typer.Exit(code=1)
+
+    cfg = validate_or_die(c.schema, data, "show")
+    final = cfg.model_dump(mode="python")
+
+    print(f"{title}: {source_name}")
+    if overrides:
+        print(f"Overrides: {len(overrides)}")
+    print("=" * 60)
+    _print_with_sources(final, defaults, recipe_data, override_info, "", 0)
+
+def _diff_dicts(dict_a: dict, dict_b: dict, label_a: str, label_b: str) -> None:
+    # Strip metadata if present
+    def clean(d):
+        return {k: v for k, v in d.items() if not k.startswith("__")} if isinstance(d, dict) else d
+        
+    flat_a = flatten_config(clean(dict_a))
+    flat_b = flatten_config(clean(dict_b))
+    
+    all_keys = sorted(set(flat_a.keys()) | set(flat_b.keys()))
+    print(f"Diff: {label_a} vs {label_b}")
+    print("-" * 60)
+    
+    has_diff = False
+    for key in all_keys:
+        val_a = flat_a.get(key, _NOT_FOUND)
+        val_b = flat_b.get(key, _NOT_FOUND)
+        if val_a != val_b:
+            has_diff = True
+            if val_a is _NOT_FOUND:
+                print(f"+ {key}: {val_b}")
+            elif val_b is _NOT_FOUND:
+                print(f"- {key}: {val_a}")
+            else:
+                print(f"~ {key}: {val_a} -> {val_b}")
+    
+    if not has_diff:
+        print("No differences found.")
 
 def _print_smart_table(
     rows: list[dict], fixed_cols: list[str], potential_cols: set[str]
@@ -439,371 +594,42 @@ def _print_smart_table(
         line = "  ".join(f"{str(row.get(col, '')):<{widths[col]}}" for col in columns)
         print(line)
 
-
-def cmd_edit(
-    ctx: typer.Context,
-    recipe: Annotated[str, typer.Argument(metavar="recipe", help="Name of the recipe to edit.")],
-) -> None:
-    """Open the interactive TUI editor for a recipe."""
-    from stryx.tui import PydanticConfigTUI
-    c: Ctx = ctx.obj
-
-    try:
-        recipe_path = resolve_recipe_path(c.configs_dir, recipe)
-    except FileNotFoundError:
-        print(f"Recipe not found: {recipe}\nCreate it first with: new {recipe}")
-        raise typer.Exit(code=1)
-
-    tui = PydanticConfigTUI(c.schema, recipe_path)
-    tui.run()
-
-
-def cmd_show(
-    ctx: typer.Context,
-    target: Annotated[
-        Optional[str],
-        typer.Argument(metavar="recipe", help="Recipe to display (defaults to schema defaults)."),
-    ] = None,
-    overrides: Annotated[
-        Optional[list[str]],
-        typer.Argument(metavar="overrides", help="Temporary overrides to apply before displaying."),
-    ] = None,
-) -> None:
-    """Show the resolved configuration with source annotations (default vs recipe vs override)."""
-    c: Ctx = ctx.obj
-    overrides = overrides or []
-
-    # Handle case where target is omitted but overrides are provided
-    if target and "=" in target:
-        overrides = [target] + overrides
-        target = None
-
-    # Get schema defaults
-    try:
-        defaults_instance = c.schema()
-        schema_defaults = defaults_instance.model_dump(mode="python")
-    except Exception as e:
-        print(f"Schema has required fields without defaults:\n{e}")
-        raise typer.Exit(code=1)
-
-    # Determine source file
-    source_name = "defaults"
-    recipe_data: dict[str, Any] | None = None
-
-    if target:
-        try:
-            path = resolve_recipe_path(c.configs_dir, target)
-            recipe_data = read_config_file(path)
-            # Strip metadata
-            if isinstance(recipe_data, dict):
-                recipe_data = {
-                    k: v for k, v in recipe_data.items() if not k.startswith("__")
-                }
-            source_name = path.stem
-        except FileNotFoundError:
-            print(f"Config not found: {target}")
-            raise typer.Exit(code=1)
-
-    # Build the config data (before validation, to track sources)
-    if recipe_data is not None:
-        data = dict(recipe_data)
-    else:
-        data = dict(schema_defaults)
-
-    # Track override paths and their previous values
-    override_info: dict[str, Any] = {}  # path → previous value
-    for tok in overrides:
-        try:
-            key, _ = tok.split("=", 1)
-            key = key.strip()
-            # Get previous value before override
-            prev = _get_nested(data, key.split("."))
-            override_info[key] = prev
-            apply_override(data, tok)
-        except ValueError:
-            print(f"Invalid override format: {tok}")
-            raise typer.Exit(code=1)
-
-    # Validate
-    cfg = validate_or_die(c.schema, data, "show")
-    final_data = cfg.model_dump(mode="python")
-
-    # Print header
-    header_parts = ["Config"]
-    if source_name != "defaults":
-        header_parts.append(f"recipe: {source_name}")
-    if overrides:
-        header_parts.append(
-            f"{len(overrides)} override{'s' if len(overrides) > 1 else ''}"
-        )
-    if len(header_parts) > 1:
-        print(f"{header_parts[0]} ({', '.join(header_parts[1:])})")
-    else:
-        print(header_parts[0])
-    print("=" * 60)
-
-    # Print config with sources
-    _print_with_sources(
-        final_data,
-        schema_defaults,
-        recipe_data,
-        override_info,
-        prefix="",
-        indent=0,
-    )
-
-
-def cmd_diff(
-    ctx: typer.Context,
-    recipe_a: Annotated[str, typer.Argument(metavar="recipe_a", help="First recipe to compare.")],
-    recipe_b: Annotated[
-        Optional[str],
-        typer.Argument(metavar="recipe_b", help="Second recipe to compare (defaults to schema defaults)."),
-    ] = None,
-) -> None:
-    """Compare two experiment recipes and highlight differences."""
-    c: Ctx = ctx.obj
-
-    # Load both configs
-    try:
-        path_a = resolve_recipe_path(c.configs_dir, recipe_a)
-        cfg_a = read_config_file(path_a)
-    except FileNotFoundError:
-        print(f"Recipe not found: {recipe_a}")
-        raise typer.Exit(code=1)
-
-    if recipe_b:
-        try:
-            path_b = resolve_recipe_path(c.configs_dir, recipe_b)
-            cfg_b = read_config_file(path_b)
-            name_b = recipe_b
-        except FileNotFoundError:
-            print(f"Recipe not found: {recipe_b}")
-            raise typer.Exit(code=1)
-    else:
-        # Diff against defaults
-        base = c.schema()
-        cfg_b = base.model_dump(mode="python")
-        name_b = "(defaults)"
-
-    # Strip metadata
-    if isinstance(cfg_a, dict):
-        cfg_a = {k: v for k, v in cfg_a.items() if not k.startswith("__")}
-    if isinstance(cfg_b, dict):
-        cfg_b = {k: v for k, v in cfg_b.items() if not k.startswith("__")}
-
-    flat_a = flatten_config(cfg_a)
-    flat_b = flatten_config(cfg_b)
-
-    all_keys = sorted(set(flat_a.keys()) | set(flat_b.keys()))
-
-    print(f"Diff: {recipe_a} vs {name_b}")
-    print("-" * 60)
-
-    has_diff = False
-
-    for key in all_keys:
-        val_a = flat_a.get(key, _NOT_FOUND)
-        val_b = flat_b.get(key, _NOT_FOUND)
-
-        if val_a == val_b:
-            continue
-
-        has_diff = True
-        if val_a is _NOT_FOUND:
-            print(f"+ {key}: {val_b}")
-        elif val_b is _NOT_FOUND:
-            print(f"- {key}: {val_a}")
-        else:
-            print(f"~ {key}: {val_a} -> {val_b}")
-
-    if not has_diff:
-        print("No differences found.")
-
-
-def cmd_schema(
-    ctx: typer.Context,
-    json_out: Annotated[
-        bool,
-        typer.Option("--json", help="Output the schema in JSON format."),
-    ] = False,
-) -> None:
-    """Display the configuration schema and field documentation."""
-    c: Ctx = ctx.obj
-    if json_out:
-        print(json.dumps(c.schema.model_json_schema(), indent=2))
-        return
-
-    print(f"Schema: {c.schema.__module__}:{c.schema.__name__}")
-
-    fields = extract_fields(c.schema)
-    if fields:
-        print("Fields:")
-        groups: dict[str, list[FieldInfo]] = {}
-        group_order: list[str] = []
-
-        # Bucket fields by their first path segment
-        for field in fields:
-            path = field.path
-            group = path.split(".", 1)[0]
-            if group not in groups:
-                groups[group] = []
-                group_order.append(group)
-            groups[group].append(field)
-
-        grouped: list[tuple[str, FieldInfo | None, list[FieldInfo]]] = []
-        for group in group_order:
-            entries = groups[group]
-            parent = next((e for e in entries if e.path == group), None)
-            children = [e for e in entries if e.path != group]
-            grouped.append((group, parent, children))
-
-        for idx, (group, parent, children) in enumerate(grouped):
-            has_children = bool(children)
-            # Parent line (type/default for the group itself)
-            if parent:
-                for line in _format_field_lines(
-                    indent="  ",
-                    label=group,
-                    type_name=parent.type_str,
-                    default_str=parent.default_str,
-                    description=parent.description,
-                ):
-                    print(line)
-            else:
-                print(f"  {group}:")
-
-            # Child lines (strip the group prefix for readability)
-            for child in children:
-                child_path = child.path
-                label = (
-                    child_path[len(group) + 1 :]
-                    if child_path.startswith(f"{group}.")
-                    else child_path
-                )
-                for line in _format_field_lines(
-                    indent="    ",
-                    label=label,
-                    type_name=child.type_str,
-                    default_str=child.default_str,
-                    description=child.description,
-                ):
-                    print(line)
-
-            # Separate blocks only when nested sections are involved
-            if idx != len(grouped) - 1:
-                next_has_children = bool(grouped[idx + 1][2])
-                if has_children or next_has_children:
-                    print()
-        print()
-
-
-# ============================================================================ 
-# Helpers
-# ============================================================================ 
-
-_NOT_FOUND = object()
-
-
-def _get_nested(data: dict[str, Any], path: list[str]) -> Any:
-    """Get nested value from dict, returns _NOT_FOUND if not present."""
-    current = data
-    for key in path:
-        if not isinstance(current, dict) or key not in current:
-            return _NOT_FOUND
-        current = current[key]
-    return current
-
-
-def _get_source(
-    path: str,
-    value: Any,
-    defaults: dict[str, Any],
-    recipe: dict[str, Any] | None,
-    override_info: dict[str, Any],
-) -> str:
-    """Determine the source of a config value and format the annotation."""
-    # Check if it was a CLI override
-    if path in override_info:
-        prev = override_info[path]
-        if prev is _NOT_FOUND:
-            return "override (new)"
-        else:
-            prev_str = _format_value(prev)
-            return f"override ← {prev_str}"
-
-    # Get default value for comparison
-    parts = path.split(".")
-    default_val = _get_nested(defaults, parts)
-
-    # Check if it's in recipe AND different from default
-    if recipe is not None:
-        recipe_val = _get_nested(recipe, parts)
-        if recipe_val is not _NOT_FOUND:
-            if recipe_val != default_val:
-                return "recipe"
-
-    return "default"
-
-
-def _format_value(value: Any) -> str:
-    """Format a value for display."""
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, str):
-        return f'"{value}"'
-    if isinstance(value, float):
-        if value != 0 and (abs(value) < 0.001 or abs(value) >= 10000):
-            return f"{value:.2e}"
-        return str(value)
-    return str(value)
-
-
-def _format_field_lines(
-    indent: str,
-    label: str,
-    type_name: str,
-    default_str: str,
-    description: str | None,
-) -> list[str]:
-    """Format a field line (with optional description) for help output."""
-    line = f"{indent}{label}: {type_name}"
-    if default_str:
-        line += f" = {default_str}"
-
-    if description:
-        if len(line) < 40:
-            padding = max(1, 42 - len(line))
-            return [f"{line}{' ' * padding}# {description}"]
-        return [line, f"{indent}  # {description}"]
-
-    return [line]
-
-
-def _print_with_sources(
-    final: dict[str, Any],
-    defaults: dict[str, Any],
-    recipe: dict[str, Any] | None,
-    override_info: dict[str, Any],
-    prefix: str,
-    indent: int,
-) -> None:
-    """Recursively print config dict with source annotations."""
+def _print_with_sources(final, defaults, recipe, override_info, prefix, indent):
     pad = "  " * indent
-
     for key, value in final.items():
         path = f"{prefix}.{key}" if prefix else key
-
         if isinstance(value, dict):
             print(f"{pad}{key}:")
-            _print_with_sources(
-                value, defaults, recipe, override_info, path, indent + 1
-            )
+            _print_with_sources(value, defaults, recipe, override_info, path, indent + 1)
         else:
             source = _get_source(path, value, defaults, recipe, override_info)
             val_str = _format_value(value)
-            left_part = f"{pad}{key}: {val_str}"
-            padding = max(1, 45 - len(left_part))
-            print(f"{left_part}{' ' * padding}({source})")
+            left = f"{pad}{key}: {val_str}"
+            padding = max(1, 45 - len(left))
+            print(f"{left}{' ' * padding}({source})")
+
+def _get_source(path, value, defaults, recipe, override_info):
+    if path in override_info:
+        prev = override_info[path]
+        return "override (new)" if prev is _NOT_FOUND else f"override ← {_format_value(prev)}"
+    
+    default_val = _get_nested(defaults, path.split("."))
+    if recipe:
+        recipe_val = _get_nested(recipe, path.split("."))
+        if recipe_val is not _NOT_FOUND and recipe_val != default_val:
+            return "recipe"
+    return "default"
+
+def _format_value(value: Any) -> str:
+    if value is None: return "null"
+    if isinstance(value, bool): return "true" if value else "false"
+    if isinstance(value, str): return f'"{value}"'
+    return str(value)
+
+def _format_field_lines(indent, label, type_name, default_str, description):
+    line = f"{indent}{label}: {type_name}"
+    if default_str: line += f" = {default_str}"
+    if description:
+        padding = max(1, 42 - len(line)) if len(line) < 40 else 1
+        return [f"{line}{' ' * padding}# {description}"]
+    return [line]

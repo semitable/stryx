@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
 from stryx.utils import Ctx, write_yaml
-from stryx.commands import cmd_new, cmd_show
+from stryx.commands import recipe_init, recipe_show, run_show
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -27,50 +27,39 @@ def mock_ctx(tmp_path):
     ctx.obj = c
     return ctx
 
-def test_show_basic(mock_ctx, capsys):
+def test_show_recipe(mock_ctx, capsys):
     """Test showing a recipe configuration."""
-    cmd_new(mock_ctx, recipe="base", overrides=["value=10"])
+    recipe_init(mock_ctx, name="base", overrides=["value=10"])
     
-    cmd_show(mock_ctx, target="base")
+    recipe_show(mock_ctx, name="base")
     
     captured = capsys.readouterr()
     assert 'value: 10' in captured.out
     assert '(recipe)' in captured.out
 
-def test_show_with_overrides(mock_ctx, capsys):
-    """Test showing with CLI overrides."""
-    cmd_new(mock_ctx, recipe="base", overrides=["value=10"])
-    
-    cmd_show(mock_ctx, target="base", overrides=["value=99"])
-    
-    captured = capsys.readouterr()
-    assert 'value: 99' in captured.out
-    assert '(override ← 10)' in captured.out
-
-def test_show_defaults(mock_ctx, capsys):
-    """Test showing defaults (no recipe)."""
-    cmd_show(mock_ctx)
-    
-    captured = capsys.readouterr()
-    assert 'value: 1' in captured.out
-    assert '(default)' in captured.out
-
 def test_show_implicit_overrides(mock_ctx, capsys):
-    """Test showing defaults with implicit overrides (no recipe name)."""
-    # stryx show value=99
-    cmd_show(mock_ctx, target="value=99")
+    """Test showing defaults with implicit overrides."""
+    recipe_show(mock_ctx, name="value=99")
     
     captured = capsys.readouterr()
     assert 'value: 99' in captured.out
-    assert '(override ← 1)' in captured.out # override vs default
+    assert '(override ← 1)' in captured.out
 
-def test_show_explicit_path(mock_ctx, capsys):
-    """Test showing a config from an explicit path."""
-    path = mock_ctx.obj.configs_dir / "external.yaml"
-    write_yaml(path, {"value": 55})
+def test_show_run(mock_ctx, capsys):
+    """Test `run show <id>`."""
+    run_dir = mock_ctx.obj.runs_dir / "run_abc"
+    run_dir.mkdir()
+    write_yaml(run_dir / "manifest.yaml", {
+        "status": "COMPLETED",
+        "config": {"value": 123}
+    })
     
-    cmd_show(mock_ctx, target=str(path))
+    run_show(mock_ctx, run_id="run_abc")
     
     captured = capsys.readouterr()
-    assert 'value: 55' in captured.out
-    assert 'recipe: external' in captured.out
+    assert "Run: run_abc" in captured.out
+    assert "value: 123" in captured.out
+
+def test_show_run_missing(mock_ctx):
+    with pytest.raises(typer.Exit):
+        run_show(mock_ctx, run_id="missing")

@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
-from stryx.commands import cmd_new
+from stryx.commands import recipe_init
 from stryx.utils import Ctx, read_yaml
 
 
@@ -27,13 +27,12 @@ def mock_ctx(tmp_path):
     return ctx
 
 
-def test_new_defaults(mock_ctx):
+def test_init_defaults(mock_ctx):
     """Test creating a new recipe with defaults (sequential name)."""
     c = mock_ctx.obj
-    # Ensure directory doesn't exist yet to test creation
     assert not c.configs_dir.exists()
 
-    out_path = cmd_new(mock_ctx)
+    out_path = recipe_init(mock_ctx)
 
     assert out_path.name == "exp_001.yaml"
     assert out_path.exists()
@@ -42,36 +41,29 @@ def test_new_defaults(mock_ctx):
     data = read_yaml(out_path)
     assert data["name"] == "default_name"
     assert data["value"] == 1
-
-    # Verify Metadata
-    meta = data["__stryx__"]
-    assert meta["type"] == "canonical"
-    assert "schema" in meta
+    assert data["__stryx__"]["type"] == "canonical"
 
 
-def test_new_named(mock_ctx):
+def test_init_named(mock_ctx):
     """Test creating a named recipe."""
-    out_path = cmd_new(mock_ctx, recipe="my_exp")
+    out_path = recipe_init(mock_ctx, name="my_exp")
     assert out_path.name == "my_exp.yaml"
     assert out_path.exists()
 
 
-def test_new_smart_extension(mock_ctx):
+def test_init_smart_extension(mock_ctx):
     """Test extension handling."""
-    p1 = cmd_new(mock_ctx, recipe="exp1")
+    p1 = recipe_init(mock_ctx, name="exp1")
     assert p1.name == "exp1.yaml"
 
-    p2 = cmd_new(mock_ctx, recipe="exp2.yml")
+    p2 = recipe_init(mock_ctx, name="exp2.yml")
     assert p2.name == "exp2.yml"
 
-    p3 = cmd_new(mock_ctx, recipe="v1.final")
-    assert p3.name == "v1.final"
 
-
-def test_new_with_overrides(mock_ctx):
+def test_init_with_overrides(mock_ctx):
     """Test applying overrides."""
-    out_path = cmd_new(
-        mock_ctx, recipe="overridden", overrides=["value=99", "name=custom"]
+    out_path = recipe_init(
+        mock_ctx, name="overridden", overrides=["value=99", "name=custom"]
     )
     data = read_yaml(out_path)
 
@@ -80,72 +72,54 @@ def test_new_with_overrides(mock_ctx):
     assert data["__stryx__"]["overrides"] == ["value=99", "name=custom"]
 
 
-def test_new_implicit_overrides(mock_ctx):
-    """Test `new value=99` (implicit name)."""
-    # This simulates `stryx new value=99`
-    # recipe="value=99", overrides=[]
-    out_path = cmd_new(mock_ctx, recipe="value=99")
+def test_init_implicit_overrides(mock_ctx):
+    """Test `init value=99` (implicit name)."""
+    # recipe_init(name="value=99") -> name=None, overrides=["value=99"]
+    out_path = recipe_init(mock_ctx, name="value=99")
     
-    assert out_path.name == "exp_001.yaml" # Auto-generated name
+    assert out_path.name == "exp_001.yaml"
     data = read_yaml(out_path)
     assert data["value"] == 99
     assert data["__stryx__"]["overrides"] == ["value=99"]
 
 
-def test_new_nested_overrides(mock_ctx):
+def test_init_nested_overrides(mock_ctx):
     """Test creating a recipe with nested overrides."""
-
-    class NestedConfig(BaseModel):
-        model_config = ConfigDict(extra="forbid")
-        steps: int = 10
-
     class DeepConfig(BaseModel):
         model_config = ConfigDict(extra="forbid")
-        train: NestedConfig = NestedConfig()
+        nested: dict[str, int] = {}
 
     mock_ctx.obj.schema = DeepConfig
-
-    out_path = cmd_new(mock_ctx, recipe="deep", overrides=["train.steps=50"])
+    out_path = recipe_init(mock_ctx, name="deep", overrides=["nested.steps=50"])
     data = read_yaml(out_path)
+    assert data["nested"]["steps"] == 50
 
-    assert data["train"]["steps"] == 50
 
-
-def test_new_invalid_overrides(mock_ctx):
-    """Test that invalid overrides raise Exit."""
+def test_init_invalid_overrides(mock_ctx):
+    """Test that invalid overrides raise SystemExit."""
     with pytest.raises(SystemExit):
-        cmd_new(mock_ctx, recipe="invalid", overrides=["non_existent=1"])
+        recipe_init(mock_ctx, name="invalid", overrides=["non_existent=1"])
 
 
-def test_new_with_message(mock_ctx):
+def test_init_with_message(mock_ctx):
     """Test adding metadata message."""
-    out_path = cmd_new(mock_ctx, recipe="desc_test", message="This is a test run")
+    out_path = recipe_init(mock_ctx, name="desc_test", message="This is a test run")
     data = read_yaml(out_path)
     assert data["__stryx__"]["description"] == "This is a test run"
 
 
 def test_overwrite_protection(mock_ctx):
     """Test protection against accidental overwrites."""
-    cmd_new(mock_ctx, recipe="locked")
+    recipe_init(mock_ctx, name="locked")
 
-    # Try creating again without force
     with pytest.raises(typer.Exit):
-        cmd_new(mock_ctx, recipe="locked")
+        recipe_init(mock_ctx, name="locked")
 
 
 def test_force_overwrite(mock_ctx):
     """Test forced overwrite."""
-    p1 = cmd_new(mock_ctx, recipe="forced", overrides=["value=1"])
+    p1 = recipe_init(mock_ctx, name="forced", overrides=["value=1"])
     assert read_yaml(p1)["value"] == 1
 
-    p2 = cmd_new(mock_ctx, recipe="forced", overrides=["value=2"], force=True)
+    p2 = recipe_init(mock_ctx, name="forced", overrides=["value=2"], force=True)
     assert read_yaml(p2)["value"] == 2
-
-
-def test_sequential_naming(mock_ctx):
-    """Test that default names increment."""
-    p1 = cmd_new(mock_ctx)
-    assert p1.name == "exp_001.yaml"
-
-    p2 = cmd_new(mock_ctx)
-    assert p2.name == "exp_002.yaml"

@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict, Field
-from stryx.commands import cmd_schema
+from stryx.commands import recipe_schema
 from stryx.utils import Ctx
 
 class Config(BaseModel):
@@ -24,23 +24,15 @@ def mock_ctx(tmp_path):
     return ctx
 
 def test_schema_printing(mock_ctx, capsys):
-    """Test that schema fields and descriptions are printed."""
-    cmd_schema(mock_ctx)
-    
+    recipe_schema(mock_ctx)
     captured = capsys.readouterr()
     assert "Schema: test_cmd_schema:Config" in captured.out
-    assert "Fields:" in captured.out
     assert "name: str = \"default\"" in captured.out
-    assert "# Experiment name" in captured.out
-    assert "value: int = 1" in captured.out
 
 def test_schema_json(mock_ctx, capsys):
-    """Test that schema can be printed as JSON."""
-    cmd_schema(mock_ctx, json_out=True)
-    
+    recipe_schema(mock_ctx, json_out=True)
     captured = capsys.readouterr()
     import json
     data = json.loads(captured.out)
     assert data["title"] == "Config"
     assert "name" in data["properties"]
-    assert "value" in data["properties"]

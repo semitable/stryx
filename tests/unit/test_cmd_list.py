@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
 from stryx.utils import Ctx, write_yaml
-from stryx.commands import cmd_new, cmd_list_configs, cmd_list_runs
+from stryx.commands import recipe_init, recipe_list, run_list
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -27,12 +27,12 @@ def mock_ctx(tmp_path):
     ctx.obj = c
     return ctx
 
-def test_list_configs(mock_ctx, capsys):
+def test_list_recipes(mock_ctx, capsys):
     """Test listing recipes."""
-    cmd_new(mock_ctx, recipe="a", overrides=["value=10"])
-    cmd_new(mock_ctx, recipe="b", overrides=["value=20"])
+    recipe_init(mock_ctx, name="a", overrides=["value=10"])
+    recipe_init(mock_ctx, name="b", overrides=["value=20"])
     
-    cmd_list_configs(mock_ctx)
+    recipe_list(mock_ctx)
     
     captured = capsys.readouterr()
     assert "a" in captured.out
@@ -60,7 +60,7 @@ def test_list_runs(mock_ctx, capsys):
         "config": {"value": 200}
     })
     
-    cmd_list_runs(mock_ctx)
+    run_list(mock_ctx)
     
     captured = capsys.readouterr()
     assert "run_1" in captured.out
@@ -68,15 +68,16 @@ def test_list_runs(mock_ctx, capsys):
     assert "run_2" in captured.out
     assert "FAILED" in captured.out
     assert "100" in captured.out
+    assert "200" in captured.out
 
 def test_list_configs_resilience(mock_ctx, capsys):
     """Test that listing configs skips bad files gracefully."""
-    cmd_new(mock_ctx, recipe="good")
+    recipe_init(mock_ctx, name="good")
     
     bad_path = mock_ctx.obj.configs_dir / "bad.yaml"
     bad_path.write_text(":: invalid yaml ::")
     
-    cmd_list_configs(mock_ctx)
+    recipe_list(mock_ctx)
     
     captured = capsys.readouterr()
     assert "good" in captured.out
