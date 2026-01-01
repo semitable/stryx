@@ -291,9 +291,20 @@ def recipe_list(ctx: typer.Context) -> None:
     df.sort_values(by="stryx.name", inplace=True)
     
     fixed_cols = ["stryx.name", "stryx.created_at"]
-    other_cols = sorted([c for c in df.columns if c not in fixed_cols])
     
-    df = df.reindex(columns=fixed_cols + other_cols)
+    # Identify interesting columns (variance > 1)
+    interesting_cols = []
+    potential_cols = [c for c in df.columns if c not in fixed_cols]
+    
+    for col in potential_cols:
+        # Check if column has > 1 unique value
+        if df[col].astype(str).nunique() > 1:
+            interesting_cols.append(col)
+            
+    interesting_cols.sort()
+    
+    final_cols = fixed_cols + interesting_cols
+    df = df.reindex(columns=final_cols)
     
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', 1000)
