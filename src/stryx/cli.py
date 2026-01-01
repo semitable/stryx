@@ -85,7 +85,7 @@ def dispatch(
     )
     recipe_app.command(name="init")(recipe_init)
     recipe_app.command(name="fork")(recipe_fork)
-    recipe_app.command(name="edit")(recipe_edit)
+    recipe_app.command(name="edit", hidden=True)(recipe_edit)
     recipe_app.command(name="show")(recipe_show)
     recipe_app.command(name="diff")(recipe_diff)
     recipe_app.command(name="list")(recipe_list)
