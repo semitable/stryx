@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import getpass
-import hashlib
 import os
 import platform
 import socket
@@ -204,7 +203,6 @@ def record_run_manifest(
         "pid": os.getpid(),
         "git": _git_info(),
         "python": {"version": platform.python_version()},
-        "uv": {"lock_hash": _uv_lock_hash()},
     }
     manifest["git"]["untracked"] = _git_untracked_files()
     if patch_path:
@@ -250,18 +248,7 @@ def _git_untracked_files() -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
-def _uv_lock_hash(lock_path: Path | None = None) -> str | None:
-    path = lock_path or Path("uv.lock")
-    if not path.exists():
-        return None
-    hasher = hashlib.sha256()
-    try:
-        with path.open("rb") as fh:
-            for chunk in iter(lambda: fh.read(8192), b""):
-                hasher.update(chunk)
-        return hasher.hexdigest()
-    except OSError:
-        return None
+
 
 
 def _write_git_patch(run_root: Path) -> Path | None:
