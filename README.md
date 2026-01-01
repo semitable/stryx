@@ -1,27 +1,27 @@
 # Stryx
 
-**Stryx** is a typed configuration compiler and experiment manager for Machine Learning. It provides a lightweight, composable approach to experiment tracking and configuration, using Pydantic for validation and YAML for persistence.
+**Stryx** is a typed configuration compiler and experiment manager designed for Machine Learning workflows. It provides a lightweight, type-safe approach to experiment tracking and configuration management.
 
 ## Key Features
 
-*   **Type-First:** Configurations are defined as Pydantic models, providing IDE support and validation.
-*   **Configs as Source:** Experiment configurations are compiled into static YAML "configs" that include metadata and lineage.
-*   **Minimal Surface:** A single decorator (`@stryx.cli`) adds powerful CLI capabilities to any script.
-*   **Reproducibility:** Defaults are code-driven, overrides are explicit, and every run is recorded with a manifest (git state, logs, absolute paths).
-*   **Lifecycle Management:** Automatic recording of status, results, and system metadata for every execution.
+*   **Type-First:** Configurations are defined as Pydantic models, ensuring validation and IDE support.
+*   **Configs as Source:** Experiment configurations are compiled into static YAML "recipes".
+*   **Minimal Surface:** A single decorator (`@stryx.cli`) adds powerful CLI capabilities to any entry point.
 
 ## Installation
 
+Stryx is available on PyPI. Install it using `uv` (or pip):
+
 ```bash
-pip install stryx
+uv add stryx
 ```
 
 ## Quick Start
 
-Define your configuration schema and decorate your entry point:
+Define your configuration schema and decorate your main function:
 
 ```python
-# train.py
+# example.py
 from pydantic import BaseModel
 import stryx
 
@@ -39,83 +39,87 @@ if __name__ == "__main__":
 
 ## CLI Usage
 
-Your script now has a structured CLI.
+Your script now has access to Stryx's full CLI functionality.
 
-### 1. Running Experiments (`run`)
-Execute an experiment. If you provide overrides, Stryx automatically creates a "scratch" config to track the variant.
+### Managing Recipes (`configs`)
+
+Create, modify, and inspect your experiment "recipes" (static YAML files).
+
+*   **Create new:**
+    ```bash
+    uv run example.py configs new my_exp lr=0.01
+    # Creates: configs/my_exp.yaml
+    ```
+
+*   **List all:**
+    ```bash
+    uv run example.py configs list
+    ```
+
+*   **Show details:**
+    Shows the resolved configuration and the source of each value (default, recipe, or override).
+    ```bash
+    uv run example.py configs show my_exp
+    ```
+
+*   **Diff:**
+    Compare two configurations to see what changed.
+    ```bash
+    uv run example.py configs diff my_exp other_exp
+    ```
+
+*   **Fork:**
+    Create a new recipe based on an existing one.
+    ```bash
+    uv run example.py configs fork my_exp new_exp epochs=20
+    ```
+
+*   **Edit (Interactive):**
+    Open a terminal UI to edit a configuration.
+    ```bash
+    uv run example.py configs edit my_exp
+    ```
+
+### Running Experiments (`run` / `runs`)
+
+Execute experiments and track their history.
+
+*   **Run a recipe:**
+    ```bash
+    uv run example.py run my_exp
+    ```
+
+*   **Run with overrides:**
+    This creates a temporary "scratch" config to ensure reproducibility without cluttering your main recipes.
+    ```bash
+    uv run example.py run my_exp lr=0.02
+    ```
+
+*   **List history:**
+    See all past execution runs.
+    ```bash
+    uv run example.py runs list
+    ```
+
+*   **Inspect a run:**
+    View the exact configuration used for a past run.
+    ```bash
+    uv run example.py runs show <run_id>
+    ```
+
+*   **Compare runs:**
+    See how configuration differed between two runs.
+    ```bash
+    uv run example.py runs diff <run_id_1> <run_id_2>
+    ```
+
+### Validation
+
+Type checking is enforced automatically. Invalid inputs are caught early:
 
 ```bash
-# Run with defaults
-python train.py run
-
-# Run with overrides (creates a scratch config)
-python train.py run lr=1e-3 epochs=50
-
-# Run a specific named config
-python train.py run my_exp
+uv run example.py configs new lr=astring
+# Output:
+# Config validation failed (building config):
+# optim.adamw.lr: Input should be a valid number, unable to parse string as a number
 ```
-
-### 2. Config Management (`configs`)
-Manage your experiment templates (recipes).
-
-```bash
-# Initialize a new config from defaults
-python train.py configs new my_exp lr=1e-3
-
-# Fork an existing config
-python train.py configs fork my_exp better_exp lr=2e-4
-
-# List all saved configs
-python train.py configs list
-
-# Inspect a config with source annotations
-python train.py configs show my_exp
-
-# Print the JSON schema for VS Code validation
-python train.py configs schema --json
-```
-
-### 3. Run Management (`runs`)
-Inspect and compare execution history.
-
-```bash
-# List all runs
-python train.py runs list
-
-# Show detailed info for a specific run
-python train.py runs show run_20260101_120000
-
-# Diff two runs to see what changed
-python train.py runs diff run_A run_B
-```
-
-## CLI Reference
-
-### Top-level Commands
-| Command | Description |
-| :--- | :--- |
-| `run [config] [ov...]` | Execute an experiment (alias for `runs exec`). |
-| `configs` | Subcommands for managing configuration files. |
-| `runs` | Subcommands for managing execution history. |
-
-### Configs Subcommands (`configs ...`)
-| Command | Description |
-| :--- | :--- |
-| `new [name] [ov...]` | Create a fresh config file from defaults. |
-| `fork <src> <name> [ov...]`| Fork an existing config with modifications. |
-| `list` | List all saved configs and scratches. |
-| `show [name] [ov...]` | Display config with source annotations. |
-| `diff <A> [B]` | Compare two configs (or A vs defaults). |
-| `schema` | Show the configuration schema (use `--json` for files). |
-
-### Runs Subcommands (`runs ...`)
-| Command | Description |
-| :--- | :--- |
-| `exec [config] [ov...]` | Execute an experiment. |
-| `list` | List execution history and statuses. |
-| `show <run_id>` | Show configuration and metadata for a run. |
-| `diff <id_A> <id_B>` | Compare configuration between two runs. |
-
-### Global Options
-*   `--runs-dir`: Override directory for run logs and manifests (default: `runs/`).
-*   `--configs-dir`: Override directory for config storage (default: `configs/`).
