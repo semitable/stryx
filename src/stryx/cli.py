@@ -79,8 +79,8 @@ def dispatch(
 
     # 2. Recipe Management Group
     recipe_app = typer.Typer(
-        name="recipes",
-        help="Manage experiment recipes (templates).",
+        name="configs",
+        help="Manage experiment configs (recipes).",
         no_args_is_help=True,
     )
     recipe_app.command(name="init")(recipe_init)
