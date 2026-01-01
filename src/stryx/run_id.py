@@ -76,7 +76,14 @@ def _is_distributed_context() -> bool:
     """Check if the environment looks distributed."""
     # Only check standard rank variables. 
     # We purposefully ignore TORCHELASTIC_RUN_ID as it can be unreliable/opaque.
-    dist_vars = ["RANK", "LOCAL_RANK", "PMI_RANK", "OMPI_COMM_WORLD_RANK"]
+    dist_vars = [
+        "STRYX_RANK",
+        "STRYX_WORLD_SIZE",
+        "RANK",
+        "LOCAL_RANK",
+        "PMI_RANK",
+        "OMPI_COMM_WORLD_RANK",
+    ]
     return any(os.getenv(k) is not None for k in dist_vars)
 
 

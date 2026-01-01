@@ -47,6 +47,15 @@ def test_distributed_safety_check(monkeypatch):
     assert "Distributed environment detected" in msg
     assert "no shared Run ID" in msg
 
+def test_stryx_rank_forces_dist_check(monkeypatch):
+    """Raises SystemExit if STRYX_RANK is set but no ID source."""
+    monkeypatch.setenv("STRYX_RANK", "1")
+    
+    with pytest.raises(SystemExit) as exc:
+        derive_run_id()
+    
+    assert "Distributed environment detected" in str(exc.value)
+
 def test_slurm_id_accepted(monkeypatch):
     """SLURM_JOB_ID is accepted as a trusted shared ID."""
     monkeypatch.setenv("SLURM_JOB_ID", "999")

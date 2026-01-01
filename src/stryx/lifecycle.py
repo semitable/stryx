@@ -75,7 +75,10 @@ class RunContext:
 
         # Determine log path
         run_root = self.manifest_path.parent
-        is_distributed = os.getenv("WORLD_SIZE") is not None
+        is_distributed = any(
+            os.getenv(v) is not None
+            for v in ("STRYX_WORLD_SIZE", "STRYX_RANK", "WORLD_SIZE")
+        )
 
         if is_distributed:
             log_dir = run_root / "logs"
@@ -167,7 +170,13 @@ class RunContext:
 
 def get_rank() -> int:
     """Get current process rank (0 if not distributed)."""
-    for var in ("RANK", "LOCAL_RANK", "SLURM_PROCID", "OMPI_COMM_WORLD_RANK"):
+    for var in (
+        "STRYX_RANK",
+        "RANK",
+        "LOCAL_RANK",
+        "SLURM_PROCID",
+        "OMPI_COMM_WORLD_RANK",
+    ):
         val = os.getenv(var)
         if val is not None:
             return int(val)

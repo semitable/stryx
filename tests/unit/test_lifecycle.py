@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
-from stryx.lifecycle import RunContext, TeeStream, record_run_manifest
+from stryx.lifecycle import RunContext, TeeStream, record_run_manifest, get_rank
 from stryx.utils import read_yaml, write_yaml, Ctx
 
 @pytest.fixture
@@ -104,6 +104,28 @@ def test_run_context_non_zero_rank(tmp_path):
     log_file = tmp_path / "run_dist" / "logs" / "rank_1.log"
     assert log_file.exists()
     assert "Rank 1 working" in log_file.read_text()
+
+def test_get_rank_overrides(monkeypatch):
+    """Test that STRYX_RANK takes precedence."""
+    monkeypatch.setenv("RANK", "10")
+    assert get_rank() == 10
+    
+    monkeypatch.setenv("STRYX_RANK", "5")
+    assert get_rank() == 5
+
+def test_run_context_stryx_dist_vars(tmp_path, monkeypatch):
+    """Test that STRYX_WORLD_SIZE and STRYX_RANK trigger distributed logging."""
+    manifest_path = tmp_path / "run_stryx_dist" / "stryx.manifest.yaml"
+    manifest_path.parent.mkdir()
+    
+    monkeypatch.setenv("STRYX_WORLD_SIZE", "2")
+    monkeypatch.setenv("STRYX_RANK", "0")
+    
+    with RunContext(manifest_path, rank=0):
+        pass
+        
+    # Should use distributed logs path even for rank 0 if WORLD_SIZE is set
+    assert (tmp_path / "run_stryx_dist" / "logs" / "rank_0.log").exists()
 
 @patch("stryx.lifecycle._run_cmd")
 def test_record_manifest_git_info(mock_run_cmd, mock_ctx):
