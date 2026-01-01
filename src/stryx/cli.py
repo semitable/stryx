@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import sys
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, Optional, Annotated
 
 import typer
 from pydantic import BaseModel
@@ -126,3 +126,42 @@ def dispatch(
         app(argv)
     except SystemExit as e:
         raise e
+
+
+# ============================================================================
+# Standalone CLI (stryx command)
+# ============================================================================
+
+stryx_app = typer.Typer(
+    name="stryx",
+    help="Stryx management utility",
+    add_completion=False,
+    no_args_is_help=True,
+)
+
+
+@stryx_app.command(name="create-run-id")
+def create_run_id_cmd(
+    label: Annotated[
+        Optional[str], 
+        typer.Option(help="Optional label to include in the ID.")
+    ] = None,
+) -> None:
+    """Generate a unique, timestamped run ID."""
+    from stryx.run_id import _generate_local_id
+    print(_generate_local_id(label))
+
+
+@stryx_app.command(name="version")
+def version_cmd() -> None:
+    """Print the version of Stryx."""
+    import importlib.metadata
+    try:
+        print(importlib.metadata.version("stryx"))
+    except importlib.metadata.PackageNotFoundError:
+        print("unknown")
+
+
+def main() -> None:
+    """Entry point for the 'stryx' command line tool."""
+    stryx_app()
