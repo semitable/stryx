@@ -60,7 +60,7 @@ Manage your experiment templates (recipes).
 
 ```bash
 # Initialize a new config from defaults
-python train.py configs init my_exp lr=1e-3
+python train.py configs new my_exp lr=1e-3
 
 # Fork an existing config
 python train.py configs fork my_exp better_exp lr=2e-4
@@ -101,7 +101,7 @@ python train.py runs diff run_A run_B
 ### Configs Subcommands (`configs ...`)
 | Command | Description |
 | :--- | :--- |
-| `init [name] [ov...]` | Create a fresh config file from defaults. |
+| `new [name] [ov...]` | Create a fresh config file from defaults. |
 | `fork <src> <name> [ov...]`| Fork an existing config with modifications. |
 | `list` | List all saved configs and scratches. |
 | `show [name] [ov...]` | Display config with source annotations. |

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
 from stryx.utils import Ctx, write_yaml
-from stryx.commands import recipe_init, recipe_diff, run_diff
+from stryx.commands import recipe_new, recipe_diff, run_diff
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -27,11 +27,12 @@ def mock_ctx(tmp_path):
     ctx.obj = c
     return ctx
 
-def test_diff_recipes(mock_ctx, capsys):
-    recipe_init(mock_ctx, name="r1", overrides=["value=10"])
-    recipe_init(mock_ctx, name="r2", overrides=["value=20"])
+def test_recipe_diff_basic(mock_ctx, capsys):
+    """Test diffing two recipes."""
+    recipe_new(mock_ctx, name="r1", overrides=["value=10"])
+    recipe_new(mock_ctx, name="r2", overrides=["value=20"])
     
-    recipe_diff(mock_ctx, name_a="r1", name_b="r2")
+    recipe_diff(mock_ctx, "r1", "r2")
     
     captured = capsys.readouterr()
     assert "~ value: 10 -> 20" in captured.out

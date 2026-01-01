@@ -31,7 +31,7 @@ from stryx.utils import (
 # Recipe Commands
 # ============================================================================
 
-def recipe_init(
+def recipe_new(
     ctx: typer.Context,
     name: Annotated[
         Optional[str],
@@ -49,59 +49,52 @@ def recipe_init(
     ] = None,
     message: Annotated[
         Optional[str],
-        typer.Option("--message", "-m", help="Description for metadata."),
+        typer.Option(
+            "--message",
+            "-m",
+            help="Description/Message for this recipe.",
+        ),
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Overwrite existing recipe."),
+        typer.Option(
+            "--force",
+            "-f",
+            help="Overwrite if exists.",
+        ),
     ] = False,
 ) -> Path:
-    """Create a new recipe from defaults."""
+    """Create a new recipe."""
     c: Ctx = ctx.obj
-    
-    # Smart parse: if name looks like override, shift it
+
+    # Handle "stryx configs new key=val" (no name)
     name, overrides = _shift_arg_if_override(name, overrides)
 
     cfg = build_config(c.schema, overrides)
-    cfg_data = cfg.model_dump(mode="python")
-
-    c.configs_dir.mkdir(parents=True, exist_ok=True)
-
+    
+    if not name:
+        name = get_next_sequential_name(c.configs_dir)
+        
+    # Ensure extension
+    if not (name.endswith(".yaml") or name.endswith(".yml")):
+        name += ".yaml"
+        
+    out_path = c.configs_dir / name
+    
     try:
-        if name:
-            _validate_name_not_override(name, "name")
-            if "." not in name:
-                name = f"{name}.yaml"
-            out_path = c.configs_dir / name
-            save_recipe(
-                path=out_path,
-                cfg_data=cfg_data,
-                schema_cls=c.schema,
-                overrides=overrides,
-                description=message,
-                force=force,
-                kind="canonical",
-            )
-        else:
-            lock_path = c.configs_dir / ".stryx.lock"
-            with FileLock(lock_path):
-                name = get_next_sequential_name(c.configs_dir)
-                out_path = c.configs_dir / f"{name}.yaml"
-                save_recipe(
-                    path=out_path,
-                    cfg_data=cfg_data,
-                    schema_cls=c.schema,
-                    overrides=overrides,
-                    description=message,
-                    force=False,
-                    kind="canonical",
-                )
-    except FileExistsError as e:
-        print(f"Error: {e} Use --force to overwrite.")
+        save_recipe(
+            path=out_path,
+            cfg_data=cfg.model_dump(mode="python"),
+            schema_cls=c.schema,
+            overrides=overrides,
+            description=message,
+            force=force,
+        )
+        print(f"Created recipe: {out_path.relative_to(c.configs_dir.parent) if c.configs_dir.is_absolute() else out_path}")
+        return out_path
+    except FileExistsError:
+        print(f"Error: {out_path} already exists (use --force to overwrite)")
         raise typer.Exit(code=1)
-
-    print(f"Initialized recipe: {out_path}")
-    return out_path
 
 
 def recipe_fork(

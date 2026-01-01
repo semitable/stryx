@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
-from stryx.commands import recipe_init, recipe_fork
+from stryx.commands import recipe_new, recipe_fork
 from stryx.utils import Ctx, read_yaml
 
 class Config(BaseModel):
@@ -29,7 +29,7 @@ def mock_ctx(tmp_path):
 
 def test_fork_basic(mock_ctx):
     """Test basic forking from one recipe to another."""
-    recipe_init(mock_ctx, name="source", overrides=["value=10"])
+    recipe_new(mock_ctx, name="source", overrides=["value=10"])
     
     out_path = recipe_fork(mock_ctx, source="source", name="dest")
     
@@ -40,7 +40,7 @@ def test_fork_basic(mock_ctx):
 
 def test_fork_with_overrides(mock_ctx):
     """Test forking and overriding at the same time."""
-    recipe_init(mock_ctx, name="source", overrides=["value=10"])
+    recipe_new(mock_ctx, name="source", overrides=["value=10"])
     
     out_path = recipe_fork(mock_ctx, source="source", name="dest", overrides=["value=20"])
     
@@ -49,7 +49,7 @@ def test_fork_with_overrides(mock_ctx):
 
 def test_fork_metadata_updates(mock_ctx):
     """Ensure metadata is updated."""
-    recipe_init(mock_ctx, name="old", message="Old msg")
+    recipe_new(mock_ctx, name="old", message="Old msg")
     old_ts = read_yaml(mock_ctx.obj.configs_dir / "old.yaml")["__stryx__"]["created_at"]
     
     recipe_fork(mock_ctx, source="old", name="new", message="New msg")
@@ -60,14 +60,14 @@ def test_fork_metadata_updates(mock_ctx):
 
 def test_fork_invalid_override(mock_ctx):
     """Test that invalid overrides during fork cause failure."""
-    recipe_init(mock_ctx, name="base")
+    recipe_new(mock_ctx, name="base")
     
     with pytest.raises(SystemExit):
         recipe_fork(mock_ctx, source="base", name="dest", overrides=["typo=999"])
 
 def test_fork_name_conflict(mock_ctx):
     """Test that providing an override-like name causes error."""
-    recipe_init(mock_ctx, name="base")
+    recipe_new(mock_ctx, name="base")
     
     # "optim.lr=4" looks like override, should fail validation for 'name' arg
     with pytest.raises(typer.Exit):

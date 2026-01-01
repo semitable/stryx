@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
 from stryx.utils import Ctx, write_yaml
-from stryx.commands import recipe_init, recipe_list, run_list
+from stryx.commands import recipe_new, recipe_list, run_list
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -29,8 +29,8 @@ def mock_ctx(tmp_path):
 
 def test_list_recipes(mock_ctx, capsys):
     """Test listing recipes."""
-    recipe_init(mock_ctx, name="a", overrides=["value=10"])
-    recipe_init(mock_ctx, name="b", overrides=["value=20"])
+    recipe_new(mock_ctx, name="a", overrides=["value=10"])
+    recipe_new(mock_ctx, name="b", overrides=["value=20"])
     
     recipe_list(mock_ctx)
     
@@ -83,8 +83,8 @@ def test_list_runs(mock_ctx, capsys):
 
 def test_list_recipes_hides_constant(mock_ctx, capsys):
     """Test that constant columns are hidden in recipe list."""
-    recipe_init(mock_ctx, name="r1", overrides=["value=10"])
-    recipe_init(mock_ctx, name="r2", overrides=["value=10"])
+    recipe_new(mock_ctx, name="r1", overrides=["value=10"])
+    recipe_new(mock_ctx, name="r2", overrides=["value=10"])
     
     recipe_list(mock_ctx)
     
@@ -102,7 +102,7 @@ def test_list_recipes_hides_constant(mock_ctx, capsys):
     # But "10" is short.
     # Let's use a unique number.
     
-    recipe_init(mock_ctx, name="r3", overrides=["value=999"])
+    recipe_new(mock_ctx, name="r3", overrides=["value=999"])
     # Now r1=10, r2=10, r3=999. It VARIES now! So it SHOULD appear.
     
     # Let's do a fresh context or clear it?
@@ -115,7 +115,7 @@ def test_list_recipes_hides_constant(mock_ctx, capsys):
 
 def test_list_recipes_hides_constant_fresh(tmp_path, capsys):
     from stryx.utils import Ctx
-    from stryx.commands import recipe_init, recipe_list
+    from stryx.commands import recipe_new, recipe_list
     
     class Config(BaseModel):
         model_config = ConfigDict(extra="forbid")
@@ -130,8 +130,8 @@ def test_list_recipes_hides_constant_fresh(tmp_path, capsys):
     ctx = MagicMock(spec=typer.Context)
     ctx.obj = c
     
-    recipe_init(ctx, name="r1", overrides=["val=777"])
-    recipe_init(ctx, name="r2", overrides=["val=777"])
+    recipe_new(ctx, name="r1", overrides=["val=777"])
+    recipe_new(ctx, name="r2", overrides=["val=777"])
     
     recipe_list(ctx)
     
@@ -143,7 +143,7 @@ def test_list_recipes_hides_constant_fresh(tmp_path, capsys):
 
 def test_list_configs_resilience(mock_ctx, capsys):
     """Test that listing configs skips bad files gracefully."""
-    recipe_init(mock_ctx, name="good")
+    recipe_new(mock_ctx, name="good")
     
     bad_path = mock_ctx.obj.configs_dir / "bad.yaml"
     bad_path.write_text(":: invalid yaml ::")

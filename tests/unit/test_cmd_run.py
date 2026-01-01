@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
 from stryx.utils import Ctx, read_yaml, write_yaml
-from stryx.commands import recipe_init, run_exec
+from stryx.commands import recipe_new, run_exec
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -33,7 +33,7 @@ def mock_ctx(tmp_path, mock_func):
 
 def test_run_basic(mock_ctx):
     """Test running an existing recipe exactly."""
-    recipe_init(mock_ctx, name="base", overrides=["value=10"])
+    recipe_new(mock_ctx, name="base", overrides=["value=10"])
     
     result = run_exec(mock_ctx, target="base")
     
@@ -46,7 +46,7 @@ def test_run_basic(mock_ctx):
 
 def test_run_with_id(mock_ctx):
     """Test 'run' with explicit --run-id."""
-    recipe_init(mock_ctx, name="base")
+    recipe_new(mock_ctx, name="base")
     
     run_exec(mock_ctx, target="base", run_id="my-custom-id")
     
@@ -67,7 +67,7 @@ def test_try_defaults(mock_ctx):
 
 def test_try_from_recipe(mock_ctx):
     """Test 'try' based on an existing recipe."""
-    recipe_init(mock_ctx, name="base", overrides=["value=10"])
+    recipe_new(mock_ctx, name="base", overrides=["value=10"])
     
     # run base value=20
     result = run_exec(mock_ctx, target="base", overrides=["value=20"])

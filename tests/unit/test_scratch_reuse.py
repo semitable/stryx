@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
 from stryx.utils import Ctx, read_yaml
-from stryx.commands import run_exec, recipe_init
+from stryx.commands import run_exec, recipe_new
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -78,7 +78,7 @@ def test_scratch_reuse_overrides(mock_ctx, capsys):
 def test_canonical_reuse_priority(mock_ctx, capsys):
     """Test that canonical recipes are prioritized over scratches."""
     # 1. Create a canonical recipe
-    recipe_init(mock_ctx, name="canonical", overrides=["value=50"])
+    recipe_new(mock_ctx, name="canonical", overrides=["value=50"])
     
     # 2. Run with matching overrides
     run_exec(mock_ctx, target="value=50")

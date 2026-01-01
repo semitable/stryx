@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
 from stryx.utils import Ctx, write_yaml
-from stryx.commands import recipe_init, recipe_show, run_show
+from stryx.commands import recipe_new, recipe_show, run_show
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -29,7 +29,7 @@ def mock_ctx(tmp_path):
 
 def test_show_recipe(mock_ctx, capsys):
     """Test showing a recipe configuration."""
-    recipe_init(mock_ctx, name="base", overrides=["value=10"])
+    recipe_new(mock_ctx, name="base", overrides=["value=10"])
     
     recipe_show(mock_ctx, name="base")
     
