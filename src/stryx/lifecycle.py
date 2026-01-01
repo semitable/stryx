@@ -196,7 +196,6 @@ def record_run_manifest(
         "schema": f"{c.schema.__module__}:{c.schema.__name__}",
         "config_source": source,
         "overrides": overrides or [],
-        "config": cfg.model_dump(mode="python"),
         "resolved_config_path": str(resolved_path),
         "git": _git_info(),
         "python": {"version": platform.python_version()},

@@ -425,7 +425,10 @@ def run_list(ctx: typer.Context) -> None:
             run_id = data.get("run_id", p.name)
             status = data.get("status", "UNKNOWN")
             created = data.get("created_at", "")[:16].replace("T", " ")
-            config = data.get("config", {})
+            
+            config_path = p / "config.yaml"
+            config = read_yaml(config_path) if config_path.exists() else {}
+            
             flat_cfg = flatten_config(config)
             row = {"Run ID": run_id, "Status": status, "Created": created, **flat_cfg}
             rows.append(row)
@@ -446,7 +449,8 @@ def run_show(ctx: typer.Context, run_id: Annotated[str, typer.Argument(help="Run
         raise typer.Exit(code=1)
     
     data = read_yaml(path)
-    config = data.get("config", {})
+    config_path = c.runs_dir / run_id / "config.yaml"
+    config = read_yaml(config_path) if config_path.exists() else {}
     
     defaults_instance = c.schema()
     schema_defaults = defaults_instance.model_dump(mode="python")
@@ -467,7 +471,8 @@ def run_diff(ctx: typer.Context, id_a: str, id_b: str) -> None:
         if not p.exists():
             print(f"Run not found: {rid}")
             raise typer.Exit(code=1)
-        return read_yaml(p).get("config", {})
+        config_path = c.runs_dir / rid / "config.yaml"
+        return read_yaml(config_path) if config_path.exists() else {}
 
     cfg_a = load_run(id_a)
     cfg_b = load_run(id_b)

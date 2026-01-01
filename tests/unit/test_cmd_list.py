@@ -48,8 +48,8 @@ def test_list_runs(mock_ctx, capsys):
         "run_id": "run_1", 
         "status": "COMPLETED", 
         "created_at": "2023-01-01T12:00:00",
-        "config": {"value": 100}
     })
+    write_yaml(run1 / "config.yaml", {"value": 100})
     
     run2 = mock_ctx.obj.runs_dir / "run_2"
     run2.mkdir()
@@ -57,8 +57,8 @@ def test_list_runs(mock_ctx, capsys):
         "run_id": "run_2", 
         "status": "FAILED", 
         "created_at": "2023-01-02T12:00:00",
-        "config": {"value": 200}
     })
+    write_yaml(run2 / "config.yaml", {"value": 200})
     
     run_list(mock_ctx)
     

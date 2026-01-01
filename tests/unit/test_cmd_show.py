@@ -51,8 +51,8 @@ def test_show_run(mock_ctx, capsys):
     run_dir.mkdir()
     write_yaml(run_dir / "manifest.yaml", {
         "status": "COMPLETED",
-        "config": {"value": 123}
     })
+    write_yaml(run_dir / "config.yaml", {"value": 123})
     
     run_show(mock_ctx, run_id="run_abc")
     
