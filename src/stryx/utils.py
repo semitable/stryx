@@ -174,22 +174,49 @@ def path_to_str(path: FieldPath) -> str:
     return "".join(parts)
 
 
-def parse_like_yaml(text: str, fallback: Any) -> Any:
-    """Parse text as YAML, falling back to string or original value on error.
+def parse_smart(text: str, fallback: Any = None) -> Any:
+    """Parse text with smart type inference (YAML + extra rules).
 
     Args:
         text: Text to parse
         fallback: Value to return if text is empty
 
     Returns:
-        Parsed YAML value, or text string if parsing fails, or fallback if empty
+        Parsed value (int, float, bool, None, dict, list, or string)
     """
     stripped = text.strip()
     if not stripped:
         return fallback
+
+    # 1. Custom overrides for convenience (case-insensitive)
+    low = stripped.lower()
+    if low in ("none", "null", "~"):
+        return None
+    if low == "true":
+        return True
+    if low == "false":
+        return False
+
+    # 2. Try YAML parsing
     try:
-        return yaml.safe_load(stripped)
+        val = yaml.safe_load(stripped)
+        
+        # PyYAML parses "1e-4" as string, but we often want float.
+        # Also handle cases where YAML might return string but we want number.
+        if isinstance(val, str):
+            try:
+                # Check for float indicators
+                if "." in val or "e" in val.lower():
+                    return float(val)
+                # YAML usually handles plain ints ("123") correctly, but let's be safe
+                if val.isdigit() or (val.startswith("-") and val[1:].isdigit()):
+                    return int(val)
+            except ValueError:
+                pass
+        
+        return val
     except Exception:
+        # If YAML fails (e.g. scanner error), treat as string
         return text
 
 

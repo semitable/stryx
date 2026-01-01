@@ -29,7 +29,7 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.styles import Style
 
 from .config import ConfigManager
-from .utils import FieldPath, path_to_str, parse_like_yaml
+from .utils import FieldPath, path_to_str, parse_smart
 
 # UI Constants
 SEARCH_HEIGHT = 1
@@ -347,7 +347,7 @@ class PydanticConfigTUI:
 
         path = self.edit_path
         current = self.config.get_at(path)
-        new_value = parse_like_yaml(self.edit_area.text, current)
+        new_value = parse_smart(self.edit_area.text, current)
 
         self.config.set_at(path, new_value)
         self._close_editor()

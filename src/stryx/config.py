@@ -8,7 +8,7 @@ from typing import Any, Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from .utils import FieldPath, read_yaml, write_yaml, get_nested, set_nested, set_dotpath
+from .utils import FieldPath, read_yaml, write_yaml, get_nested, set_nested, set_dotpath, parse_smart
 from .schema import SchemaIntrospector, is_discriminated_union, unwrap_optional
 
 T = TypeVar("T", bound=BaseModel)
@@ -233,45 +233,8 @@ def apply_override(data: dict[str, Any], tok: str) -> None:
     if not key:
         raise SystemExit(f"Invalid override: '{tok}' (empty key)")
 
-    value = parse_value(raw.strip())
+    value = parse_smart(raw.strip())
     set_dotpath(data, key, value)
-
-
-def parse_value(s: str) -> Any:
-    """Parse value string with smart type inference.
-
-    Handles: null, true/false, numbers, quoted strings, JSON, raw strings.
-    """
-    if s == "":
-        return ""
-
-    low = s.lower()
-    if low in ("null", "none"):
-        return None
-    if low == "true":
-        return True
-    if low == "false":
-        return False
-
-    # Quoted strings → strip quotes
-    if len(s) >= 2:
-        if (s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'"):
-            return s[1:-1]
-
-    # JSON arrays/objects
-    if s and s[0] in "{[}":
-        try:
-            return json.loads(s)
-        except json.JSONDecodeError:
-            return s
-
-    # Numbers
-    try:
-        if "." in s or "e" in s.lower():
-            return float(s)
-        return int(s)
-    except ValueError:
-        return s
 
 
 def read_config_file(path: Path) -> Any:

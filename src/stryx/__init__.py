@@ -16,7 +16,7 @@ from .tui import PydanticConfigTUI, launch_tui
 from .utils import (
     FieldPath,
     get_nested,
-    parse_like_yaml,
+    parse_smart,
     path_to_str,
     read_yaml,
     set_dotpath,
@@ -34,7 +34,7 @@ __all__ = [
     "launch_tui",
     "FieldPath",
     "get_nested",
-    "parse_like_yaml",
+    "parse_smart",
     "path_to_str",
     "read_yaml",
     "set_dotpath",

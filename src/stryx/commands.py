@@ -58,12 +58,9 @@ def recipe_init(
 ) -> Path:
     """Create a new recipe from defaults."""
     c: Ctx = ctx.obj
-    overrides = overrides or []
-
+    
     # Smart parse: if name looks like override, shift it
-    if name and "=" in name:
-        overrides = [name] + overrides
-        name = None
+    name, overrides = _shift_arg_if_override(name, overrides)
 
     cfg = build_config(c.schema, overrides)
     cfg_data = cfg.model_dump(mode="python")
@@ -200,11 +197,8 @@ def recipe_show(
 ) -> None:
     """Show recipe configuration and provenance."""
     c: Ctx = ctx.obj
-    overrides = overrides or []
-
-    if name and "=" in name:
-        overrides = [name] + overrides
-        name = None
+    
+    name, overrides = _shift_arg_if_override(name, overrides)
 
     _show_config(c, name, overrides, title="Recipe")
 
@@ -345,12 +339,9 @@ def run_exec(
 ) -> Any:
     """Start an experiment run."""
     c: Ctx = ctx.obj
-    overrides = overrides or []
     
     # Handle implicit overrides
-    if target and "=" in target:
-        overrides = [target] + overrides
-        target = None
+    target, overrides = _shift_arg_if_override(target, overrides)
             
     # Resolve Config
     lineage = None
@@ -495,6 +486,16 @@ def _validate_name_not_override(value: str, arg_name: str) -> None:
         print(f"Error: Argument '{arg_name}' ('{value}') looks like an override (contains '=').")
         print(f"Did you forget to provide the '{arg_name}'?")
         raise typer.Exit(code=1)
+
+def _shift_arg_if_override(
+    arg: str | None,
+    overrides: list[str] | None
+) -> tuple[str | None, list[str]]:
+    """Shift argument to overrides if it looks like an override."""
+    overrides = overrides or []
+    if arg and "=" in arg:
+        return None, [arg] + overrides
+    return arg, overrides
 
 def _get_nested(data: dict[str, Any], path: list[str]) -> Any:
     current = data
