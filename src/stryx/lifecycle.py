@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import getpass
 import hashlib
 import os
 import platform
+import socket
 import subprocess
 import sys
 import traceback
@@ -196,7 +198,10 @@ def record_run_manifest(
         "schema": f"{c.schema.__module__}:{c.schema.__name__}",
         "config_source": source,
         "overrides": overrides or [],
-        "resolved_config_path": str(resolved_path),
+        "command": sys.argv,
+        "user": getpass.getuser(),
+        "host": socket.gethostname(),
+        "pid": os.getpid(),
         "git": _git_info(),
         "python": {"version": platform.python_version()},
         "uv": {"lock_hash": _uv_lock_hash()},
