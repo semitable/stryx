@@ -247,6 +247,8 @@ def recipe_list(ctx: typer.Context) -> None:
         print(f"No recipes found in {c.configs_dir}")
         return
 
+    import pandas as pd
+
     canonicals = sorted(c.configs_dir.glob("*.yaml")) + sorted(
         c.configs_dir.glob("*.yml")
     )
@@ -255,7 +257,6 @@ def recipe_list(ctx: typer.Context) -> None:
 
     all_recipes = canonicals + scratches
     rows = []
-    all_keys = set()
 
     for p in all_recipes:
         try:
@@ -269,13 +270,36 @@ def recipe_list(ctx: typer.Context) -> None:
             flat = flatten_config(clean)
             is_scratch = "scratches" in p.parts
             name = f"scratches/{p.stem}" if is_scratch else p.stem
-            row = {"Name": name, "Created": created, **flat}
+            
+            row = {
+                "stryx.name": name,
+                "stryx.created_at": created,
+            }
+            
+            for k, v in flat.items():
+                row[k] = v
+                
             rows.append(row)
-            all_keys.update(flat.keys())
         except Exception:
             continue
 
-    _print_smart_table(rows, ["Name", "Created"], all_keys)
+    if not rows:
+        print("No recipes found.")
+        return
+
+    df = pd.DataFrame(rows)
+    df.sort_values(by="stryx.name", inplace=True)
+    
+    fixed_cols = ["stryx.name", "stryx.created_at"]
+    other_cols = sorted([c for c in df.columns if c not in fixed_cols])
+    
+    df = df.reindex(columns=fixed_cols + other_cols)
+    
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 1000)
+    pd.set_option('display.max_rows', None)
+    
+    print(df.to_string(index=False))
 
 
 def recipe_schema(
@@ -636,42 +660,6 @@ def _diff_dicts(dict_a: dict, dict_b: dict, label_a: str, label_b: str) -> None:
     
     if not has_diff:
         print("No differences found.")
-
-def _print_smart_table(
-    rows: list[dict], fixed_cols: list[str], potential_cols: set[str]
-) -> None:
-    """Print a table with fixed columns + interesting variant columns."""
-    if not rows:
-        print("No items.")
-        return
-
-    # Identify interesting columns (variance > 1)
-    interesting_keys = []
-    for key in sorted(potential_cols):
-        values = set()
-        for row in rows:
-            val = str(row.get(key, ""))
-            values.add(val)
-        if len(values) > 1:
-            interesting_keys.append(key)
-
-    columns = fixed_cols + interesting_keys
-
-    # Calculate widths
-    widths = {col: len(col) for col in columns}
-    for row in rows:
-        for col in columns:
-            val = str(row.get(col, ""))
-            widths[col] = max(widths[col], len(val))
-
-    # Header
-    header = "  ".join(f"{col:<{widths[col]}}" for col in columns)
-    print(header)
-    print("-" * len(header))
-
-    for row in rows:
-        line = "  ".join(f"{str(row.get(col, '')):<{widths[col]}}" for col in columns)
-        print(line)
 
 def _print_with_sources(final, defaults, recipe, override_info, prefix, indent):
     pad = "  " * indent

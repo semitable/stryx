@@ -35,6 +35,8 @@ def test_list_recipes(mock_ctx, capsys):
     recipe_list(mock_ctx)
     
     captured = capsys.readouterr()
+    assert "stryx.name" in captured.out
+    assert "stryx.created_at" in captured.out
     assert "a" in captured.out
     assert "b" in captured.out
     assert "10" in captured.out
