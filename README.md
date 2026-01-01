@@ -47,37 +47,48 @@ Create, modify, and inspect your experiment "recipes" (static YAML files).
 
 *   **Create new:**
     ```bash
-    uv run example.py configs new my_exp lr=0.01
-    # Creates: configs/my_exp.yaml
+    uv run examples/train.py configs new my_exp train.steps=100 optim.lr=0.001
+    # Created recipe: configs/my_exp.yaml
     ```
 
 *   **List all:**
     ```bash
-    uv run example.py configs list
+    uv run examples/train.py configs list
+    # stryx.name      stryx.created_at  optim.lr  train.steps
+    #     my_exp      2026-01-01 15:31    0.0010          100
     ```
 
 *   **Show details:**
     Shows the resolved configuration and the source of each value (default, recipe, or override).
     ```bash
-    uv run example.py configs show my_exp
+    uv run examples/train.py configs show my_exp
+    # Recipe: my_exp
+    # ============================================================
+    # exp_name: "demo"                             (default)
+    # train:
+    #   batch_size: 128                            (default)
+    #   steps: 100                                 (recipe)
+    # optim:
+    #   lr: 0.001                                  (recipe)
+    # ...
     ```
 
 *   **Diff:**
     Compare two configurations to see what changed.
     ```bash
-    uv run example.py configs diff my_exp other_exp
+    uv run examples/train.py configs diff my_exp other_exp
     ```
 
 *   **Fork:**
     Create a new recipe based on an existing one.
     ```bash
-    uv run example.py configs fork my_exp new_exp epochs=20
+    uv run examples/train.py configs fork my_exp new_exp epochs=20
     ```
 
 *   **Edit (Interactive):**
     Open a terminal UI to edit a configuration.
     ```bash
-    uv run example.py configs edit my_exp
+    uv run examples/train.py configs edit my_exp
     ```
 
 ### Running Experiments (`run` / `runs`)
@@ -86,31 +97,40 @@ Execute experiments and track their history.
 
 *   **Run a recipe:**
     ```bash
-    uv run example.py run my_exp
+    uv run examples/train.py run my_exp
+    # [demo] Starting training...
+    #   Model: resnet50
+    #   Dataset: cifar10
+    #   Optimizer: adamw (lr=0.001)
+    #   ...
+    #   step=0080 loss=0.012346
     ```
 
 *   **Run with overrides:**
     This creates a temporary "scratch" config to ensure reproducibility without cluttering your main recipes.
     ```bash
-    uv run example.py run my_exp lr=0.02
+    uv run examples/train.py run my_exp lr=0.02
     ```
 
 *   **List history:**
     See all past execution runs.
     ```bash
-    uv run example.py runs list
+    uv run examples/train.py runs list
+    #                            stryx.run_id stryx.status stryx.created_at  accuracy
+    #    run_20260101_153136_my_exp-big-aphid    COMPLETED 2026-01-01 15:31       0.8
+    # ...
     ```
 
 *   **Inspect a run:**
     View the exact configuration used for a past run.
     ```bash
-    uv run example.py runs show <run_id>
+    uv run examples/train.py runs show <run_id>
     ```
 
 *   **Compare runs:**
     See how configuration differed between two runs.
     ```bash
-    uv run example.py runs diff <run_id_1> <run_id_2>
+    uv run examples/train.py runs diff <run_id_1> <run_id_2>
     ```
 
 ### Validation
@@ -118,7 +138,7 @@ Execute experiments and track their history.
 Type checking is enforced automatically. Invalid inputs are caught early:
 
 ```bash
-uv run example.py configs new lr=astring
+uv run examples/train.py configs new lr=astring
 # Output:
 # Config validation failed (building config):
 # optim.adamw.lr: Input should be a valid number, unable to parse string as a number
