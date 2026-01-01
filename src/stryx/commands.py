@@ -424,23 +424,74 @@ def run_exec(
     source_info = {}
     
     if is_variant:
-        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-        name = f"{timestamp}_{petname.generate(2)}"
-        out_dir = c.configs_dir / "scratches"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{name}.yaml"
+        # Check for existing scratches or recipes
+        target_cfg_data = cfg.model_dump(mode="python")
+        reused_path = None
+        reused_kind = "scratch"
         
-        save_recipe(
-            path=out_path,
-            cfg_data=cfg.model_dump(mode="python"),
-            schema_cls=c.schema,
-            overrides=overrides,
-            kind="scratch",
-            source=lineage,
-            force=False
-        )
-        print(f"Running scratch: scratches/{name}.yaml")
-        source_info = {"kind": "scratch", "path": str(out_path), "name": name_label}
+        # 1. Check main configs first (prioritize canonical recipes)
+        if c.configs_dir.exists():
+            # Check files in configs_dir, excluding 'scratches' directory
+            for p in c.configs_dir.iterdir():
+                if p.is_dir() or p.suffix not in (".yaml", ".yml", ".json"):
+                    continue
+                try:
+                    existing_data = read_config_file(p)
+                    if isinstance(existing_data, dict):
+                        # Strip metadata
+                        clean_data = {k: v for k, v in existing_data.items() if not k.startswith("__")}
+                        if clean_data == target_cfg_data:
+                            reused_path = p
+                            reused_kind = "file"
+                            break
+                except Exception:
+                    continue
+
+        # 2. If not found, check scratches
+        if not reused_path:
+            scratch_dir = c.configs_dir / "scratches"
+            if scratch_dir.exists():
+                for p in sorted(scratch_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+                    if not p.is_file() or p.suffix not in (".yaml", ".yml", ".json"):
+                        continue
+                    try:
+                        existing_data = read_config_file(p)
+                        if isinstance(existing_data, dict):
+                            # Strip metadata
+                            clean_data = {k: v for k, v in existing_data.items() if not k.startswith("__")}
+                            if clean_data == target_cfg_data:
+                                reused_path = p
+                                reused_kind = "scratch"
+                                break
+                    except Exception:
+                        continue
+
+        if reused_path:
+            # If we matched a canonical file, treat it as running that file
+            if reused_kind == "file":
+                print(f"Reusing recipe: {reused_path.relative_to(c.configs_dir)}")
+                source_info = {"kind": "file", "path": str(reused_path), "name": reused_path.stem}
+            else:
+                print(f"Reusing scratch: scratches/{reused_path.name}")
+                source_info = {"kind": "scratch", "path": str(reused_path), "name": name_label}
+        else:
+            timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+            name = f"{timestamp}_{petname.generate(2)}"
+            out_dir = c.configs_dir / "scratches"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / f"{name}.yaml"
+            
+            save_recipe(
+                path=out_path,
+                cfg_data=target_cfg_data,
+                schema_cls=c.schema,
+                overrides=overrides,
+                kind="scratch",
+                source=lineage,
+                force=False
+            )
+            print(f"Running scratch: scratches/{name}.yaml")
+            source_info = {"kind": "scratch", "path": str(out_path), "name": name_label}
     else:
         path = resolve_recipe_path(c.configs_dir, target)
         source_info = {"kind": "file", "path": str(path), "name": path.stem}
