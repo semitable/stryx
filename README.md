@@ -143,3 +143,22 @@ uv run examples/train.py configs new lr=astring
 # Config validation failed (building config):
 # optim.adamw.lr: Input should be a valid number, unable to parse string as a number
 ```
+
+### Capturing Results
+
+If your decorated function returns a dictionary, Stryx automatically captures these values and stores them in `results.yaml` within the run directory. These results are then displayed in the run history.
+
+```python
+@stryx.cli(schema=Config)
+def main(cfg: Config):
+    # ... training logic ...
+    return {"accuracy": 0.95, "loss": 0.05}
+```
+
+The returned keys (e.g., `accuracy`, `loss`) will appear as columns when you run `runs list`:
+
+```bash
+uv run examples/train.py runs list
+# stryx.run_id ... accuracy  loss
+# run_...      ...     0.95  0.05
+```
