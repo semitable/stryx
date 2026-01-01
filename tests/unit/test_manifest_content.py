@@ -34,6 +34,7 @@ def test_manifest_content_fields(tmp_path):
     assert data["host"] == socket.gethostname()
     assert data["pid"] == os.getpid()
     assert data["command"] == sys.argv
+    assert data["run_dir"] == str((runs_dir / "run_id").absolute())
     
     # Check removed field
     assert "resolved_config_path" not in data

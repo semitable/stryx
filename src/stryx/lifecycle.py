@@ -193,6 +193,7 @@ def record_run_manifest(
 
     manifest = {
         "run_id": run_id,
+        "run_dir": str(run_root.absolute()),
         "created_at": datetime.now(tz=timezone.utc).isoformat(),
         "schema": f"{c.schema.__module__}:{c.schema.__name__}",
         "config_source": source,
