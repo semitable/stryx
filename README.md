@@ -1,14 +1,14 @@
 # Stryx
 
-**Stryx** is a typed configuration compiler and experiment manager for Machine Learning. It sits between tools like Sacred and Hydra, offering a lightweight, composable approach without the complexity of Hydra's indirection.
+**Stryx** is a typed configuration compiler and experiment manager for Machine Learning. It provides a lightweight, composable approach to experiment tracking and configuration, using Pydantic for validation and YAML for persistence.
 
 ## Key Features
 
-*   **Type-First:** Configurations are defined as Pydantic models (or dataclasses), providing IDE support and validation.
-*   **Recipes as Source:** Experiment configurations are compiled into static YAML "recipes" that include metadata and lineage.
+*   **Type-First:** Configurations are defined as Pydantic models, providing IDE support and validation.
+*   **Configs as Source:** Experiment configurations are compiled into static YAML "configs" that include metadata and lineage.
 *   **Minimal Surface:** A single decorator (`@stryx.cli`) adds powerful CLI capabilities to any script.
-*   **Reproducibility:** Defaults are code-driven, overrides are explicit, and recipes track their origin.
-*   **Lifecycle Management:** Automatic manifest recording (git state, logs, config) for every run.
+*   **Reproducibility:** Defaults are code-driven, overrides are explicit, and every run is recorded with a manifest (git state, logs, absolute paths).
+*   **Lifecycle Management:** Automatic recording of status, results, and system metadata for every execution.
 
 ## Installation
 
@@ -39,87 +39,83 @@ if __name__ == "__main__":
 
 ## CLI Usage
 
-Your script now has a powerful CLI.
+Your script now has a structured CLI.
 
-### 1. New Experiments
-Create a reusable recipe (configuration file).
-
-```bash
-# Create from defaults with overrides
-python train.py new my_exp lr=1e-3
-
-# Create without name (auto-generated: exp_001.yaml)
-python train.py new --message "Baseline run"
-```
-
-### 2. Experimentation (`try`)
-Run a quick experimental variant without creating a permanent recipe. These are saved to `scratches/`.
+### 1. Running Experiments (`run`)
+Execute an experiment. If you provide overrides, Stryx automatically creates a "scratch" config to track the variant.
 
 ```bash
-# Try modifying a specific recipe
-python train.py try my_exp epochs=5
+# Run with defaults
+python train.py run
 
-# Try modifying defaults
-python train.py try lr=5e-4
-```
+# Run with overrides (creates a scratch config)
+python train.py run lr=1e-3 epochs=50
 
-### 3. Execution (`run`)
-Run a recipe exactly as defined (strict mode).
-
-```bash
+# Run a specific named config
 python train.py run my_exp
 ```
 
-### 4. Lineage (`fork`)
-Create a new experiment based on an existing one.
+### 2. Config Management (`configs`)
+Manage your experiment templates (recipes).
 
 ```bash
-python train.py fork my_exp better_exp lr=2e-4 --message "Lower LR"
+# Initialize a new config from defaults
+python train.py configs init my_exp lr=1e-3
+
+# Fork an existing config
+python train.py configs fork my_exp better_exp lr=2e-4
+
+# List all saved configs
+python train.py configs list
+
+# Inspect a config with source annotations
+python train.py configs show my_exp
+
+# Print the JSON schema for VS Code validation
+python train.py configs schema --json
 ```
 
-### 5. Inspection & Management
+### 3. Run Management (`runs`)
+Inspect and compare execution history.
 
-*   **List:** See all recipes and runs.
-    ```bash
-    python train.py list configs  # List recipes
-    python train.py list runs     # List execution history
-    ```
+```bash
+# List all runs
+python train.py runs list
 
-*   **Show:** Inspect a configuration with annotated sources (default vs recipe vs override).
-    ```bash
-    python train.py show my_exp
-    ```
+# Show detailed info for a specific run
+python train.py runs show run_20260101_120000
 
-*   **Diff:** Compare two recipes.
-    ```bash
-    python train.py diff my_exp better_exp
-    ```
-
-*   **Schema:** Print the configuration schema (or JSON).
-    ```bash
-    python train.py schema
-    python train.py schema --json
-    ```
-
-*   **Edit:** Open a recipe in an interactive TUI (Terminal UI).
-    ```bash
-    python train.py edit my_exp
-    ```
+# Diff two runs to see what changed
+python train.py runs diff run_A run_B
+```
 
 ## CLI Reference
 
+### Top-level Commands
 | Command | Description |
 | :--- | :--- |
-| `new [name] [overrides...]` | Create a fresh experiment recipe from defaults. |
-| `fork <src> <name> [ov...]` | Fork an existing recipe with modifications. |
-| `try [target] [ov...]` | Run an experimental variant (saved to scratches). |
-| `run <target>` | Run an existing recipe exactly (strict). |
-| `list {configs,runs}` | List saved recipes or execution history. |
-| `show [target] [ov...]` | Display configuration with source annotations. |
-| `diff <A> [B]` | Compare two recipes (or A vs defaults). |
-| `schema` | Show the configuration schema. |
-| `edit <recipe>` | Edit a recipe interactively (TUI). |
+| `run [config] [ov...]` | Execute an experiment (alias for `runs exec`). |
+| `configs` | Subcommands for managing configuration files. |
+| `runs` | Subcommands for managing execution history. |
+
+### Configs Subcommands (`configs ...`)
+| Command | Description |
+| :--- | :--- |
+| `init [name] [ov...]` | Create a fresh config file from defaults. |
+| `fork <src> <name> [ov...]`| Fork an existing config with modifications. |
+| `list` | List all saved configs and scratches. |
+| `show [name] [ov...]` | Display config with source annotations. |
+| `diff <A> [B]` | Compare two configs (or A vs defaults). |
+| `schema` | Show the configuration schema (use `--json` for files). |
+
+### Runs Subcommands (`runs ...`)
+| Command | Description |
+| :--- | :--- |
+| `exec [config] [ov...]` | Execute an experiment. |
+| `list` | List execution history and statuses. |
+| `show <run_id>` | Show configuration and metadata for a run. |
+| `diff <id_A> <id_B>` | Compare configuration between two runs. |
 
 ### Global Options
-*   `--runs-dir`: Override directory for run logs and manifests.
-*   `--configs-dir`: Override directory for recipe storage.
+*   `--runs-dir`: Override directory for run logs and manifests (default: `runs/`).
+*   `--configs-dir`: Override directory for config storage (default: `configs/`).
