@@ -25,6 +25,7 @@ dependencies = [
     "petname>=2.6",
     "prompt-toolkit>=3.0.52",
     "pydantic>=2",
+    "pandas>=2.0.0",
     "pyyaml>=6.0.3",
     "rapidfuzz>=3.0.0",
     "typer>=0.9.0",

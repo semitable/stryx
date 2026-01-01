@@ -49,10 +49,10 @@ def test_show_run(mock_ctx, capsys):
     """Test `run show <id>`."""
     run_dir = mock_ctx.obj.runs_dir / "run_abc"
     run_dir.mkdir()
-    write_yaml(run_dir / "manifest.yaml", {
+    write_yaml(run_dir / "stryx.manifest.yaml", {
         "status": "COMPLETED",
     })
-    write_yaml(run_dir / "config.yaml", {"value": 123})
+    write_yaml(run_dir / "stryx.config.yaml", {"value": 123})
     
     run_show(mock_ctx, run_id="run_abc")
     

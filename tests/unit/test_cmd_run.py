@@ -50,7 +50,7 @@ def test_run_with_id(mock_ctx):
     
     run_exec(mock_ctx, target="base", run_id="my-custom-id")
     
-    assert (mock_ctx.obj.runs_dir / "my-custom-id" / "manifest.yaml").exists()
+    assert (mock_ctx.obj.runs_dir / "my-custom-id" / "stryx.manifest.yaml").exists()
 
 def test_try_defaults(mock_ctx):
     """Test 'try' (implicit run) starting from schema defaults."""

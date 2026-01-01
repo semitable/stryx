@@ -26,7 +26,7 @@ def test_manifest_content_fields(tmp_path):
     
     record_run_manifest(c, cfg, "run_id", {}, [])
     
-    manifest_path = runs_dir / "run_id" / "manifest.yaml"
+    manifest_path = runs_dir / "run_id" / "stryx.manifest.yaml"
     data = read_yaml(manifest_path)
     
     # Check new fields

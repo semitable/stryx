@@ -15,6 +15,7 @@ from stryx.config import (
     validate_or_die,
     save_recipe,
 )
+from stryx.constants import MANIFEST_FILENAME, CONFIG_FILENAME, RESULTS_FILENAME
 from stryx.lifecycle import RunContext, get_rank, record_run_manifest
 from stryx.run_id import derive_run_id
 from stryx.schema import extract_fields
@@ -416,7 +417,7 @@ def run_exec(
     if rank == 0:
         record_run_manifest(c, cfg, run_id, source_info, overrides)
         
-    manifest_path = c.runs_dir / run_id / "manifest.yaml"
+    manifest_path = c.runs_dir / run_id / MANIFEST_FILENAME
     
     with RunContext(manifest_path, rank) as run_ctx:
         result = c.func(cfg)
@@ -432,12 +433,13 @@ def run_list(ctx: typer.Context) -> None:
         return
 
     rows = []
-    all_keys = set()
+    
+    import pandas as pd
 
     for p in c.runs_dir.iterdir():
         if not p.is_dir():
             continue
-        manifest_path = p / "manifest.yaml"
+        manifest_path = p / MANIFEST_FILENAME
         if not manifest_path.exists():
             continue
 
@@ -447,42 +449,61 @@ def run_list(ctx: typer.Context) -> None:
             status = data.get("status", "UNKNOWN")
             created = data.get("created_at", "")[:16].replace("T", " ")
             
-            # Config
-            config_path = p / "config.yaml"
-            config = read_yaml(config_path) if config_path.exists() else {}
-            flat_cfg = flatten_config(config)
-
-            # Result
-            result = data.get("result")
+            # Result from results file
+            results_path = p / RESULTS_FILENAME
             flat_res = {}
-            if isinstance(result, dict):
-                # Flatten dictionary results with prefix
-                flat_res = flatten_config(result, prefix="ret")
-            elif result is not None:
-                # Handle scalar results
-                flat_res = {"ret": result}
+            if results_path.exists():
+                try:
+                    res_data = read_yaml(results_path)
+                    if isinstance(res_data, dict):
+                        flat_res = flatten_config(res_data)
+                except Exception:
+                    pass
 
-            row = {"Run ID": run_id, "Status": status, "Created": created, **flat_cfg, **flat_res}
+            row = {
+                "stryx.run_id": run_id,
+                "stryx.status": status,
+                "stryx.created_at": created,
+            }
+            
+            for k, v in flat_res.items():
+                row[k] = v
+                
             rows.append(row)
-            all_keys.update(flat_cfg.keys())
-            all_keys.update(flat_res.keys())
         except Exception:
             continue
 
-    rows.sort(key=lambda x: x.get("Created", ""), reverse=True)
-    _print_smart_table(rows, ["Run ID", "Status", "Created"], all_keys)
+    if not rows:
+        print("No runs found.")
+        return
+
+    df = pd.DataFrame(rows)
+    df.sort_values(by="stryx.created_at", ascending=False, inplace=True)
+    
+    # Sort columns: fixed first, then rest alphabetically
+    fixed_cols = ["stryx.run_id", "stryx.status", "stryx.created_at"]
+    other_cols = sorted([c for c in df.columns if c not in fixed_cols])
+    
+    df = df.reindex(columns=fixed_cols + other_cols)
+    
+    # Configure pandas for CLI output
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 1000)
+    pd.set_option('display.max_rows', None)
+    
+    print(df.to_string(index=False))
 
 
 def run_show(ctx: typer.Context, run_id: Annotated[str, typer.Argument(help="Run ID to show")]) -> None:
     """Show configuration for a run."""
     c: Ctx = ctx.obj
-    path = c.runs_dir / run_id / "manifest.yaml"
+    path = c.runs_dir / run_id / MANIFEST_FILENAME
     if not path.exists():
         print(f"Run not found: {run_id}")
         raise typer.Exit(code=1)
     
     data = read_yaml(path)
-    config_path = c.runs_dir / run_id / "config.yaml"
+    config_path = c.runs_dir / run_id / CONFIG_FILENAME
     config = read_yaml(config_path) if config_path.exists() else {}
     
     defaults_instance = c.schema()
@@ -500,11 +521,11 @@ def run_diff(ctx: typer.Context, id_a: str, id_b: str) -> None:
     c: Ctx = ctx.obj
     
     def load_run(rid):
-        p = c.runs_dir / rid / "manifest.yaml"
+        p = c.runs_dir / rid / MANIFEST_FILENAME
         if not p.exists():
             print(f"Run not found: {rid}")
             raise typer.Exit(code=1)
-        config_path = c.runs_dir / rid / "config.yaml"
+        config_path = c.runs_dir / rid / CONFIG_FILENAME
         return read_yaml(config_path) if config_path.exists() else {}
 
     cfg_a = load_run(id_a)

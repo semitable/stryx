@@ -41,8 +41,8 @@ def test_diff_runs(mock_ctx, capsys):
     def create_run(rid, val):
         d = mock_ctx.obj.runs_dir / rid
         d.mkdir()
-        write_yaml(d / "manifest.yaml", {})
-        write_yaml(d / "config.yaml", {"value": val})
+        write_yaml(d / "stryx.manifest.yaml", {})
+        write_yaml(d / "stryx.config.yaml", {"value": val})
         
     create_run("run_1", 100)
     create_run("run_2", 200)

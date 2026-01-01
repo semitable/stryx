@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, TextIO, TYPE_CHECKING
 
 from .utils import read_yaml, write_yaml
+from stryx.constants import MANIFEST_FILENAME, CONFIG_FILENAME, RESULTS_FILENAME
 
 if TYPE_CHECKING:
     from .utils import Ctx
@@ -140,14 +141,17 @@ class RunContext:
         if self.rank != 0:
             return
 
-        self._update_manifest(
-            status="COMPLETED",
-            result=result,
-            # We don't set finished_at here because __exit__ will handle it
-        )
+        self._update_manifest(status="COMPLETED")
+
+        try:
+            results_path = self.manifest_path.parent / RESULTS_FILENAME
+            data = result if isinstance(result, dict) else {"value": result}
+            write_yaml(results_path, data)
+        except Exception as e:
+            print(f"Warning: failed to write {RESULTS_FILENAME}: {e}", file=sys.stderr)
 
     def _update_manifest(self, **kwargs: Any) -> None:
-        """Update manifest.yaml with new fields."""
+        """Update manifest file with new fields."""
         try:
             if self.manifest_path.exists():
                 data = read_yaml(self.manifest_path)
@@ -180,8 +184,8 @@ def record_run_manifest(
     """Write a per-run manifest with resolved config and metadata."""
     run_root = c.runs_dir / run_id
     run_root.mkdir(parents=True, exist_ok=True)
-    manifest_path = run_root / "manifest.yaml"
-    resolved_path = run_root / "config.yaml"
+    manifest_path = run_root / MANIFEST_FILENAME
+    resolved_path = run_root / CONFIG_FILENAME
 
     patch_path = _write_git_patch(run_root)
 

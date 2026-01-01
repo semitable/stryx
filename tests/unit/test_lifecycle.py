@@ -40,7 +40,7 @@ def test_tee_stream(tmp_path):
 
 def test_run_context_lifecycle(tmp_path):
     """Test RunContext status updates and logging."""
-    manifest_path = tmp_path / "run_1" / "manifest.yaml"
+    manifest_path = tmp_path / "run_1" / "stryx.manifest.yaml"
     manifest_path.parent.mkdir()
     
     # Init manifest
@@ -59,8 +59,14 @@ def test_run_context_lifecycle(tmp_path):
     # Check finished state
     data = read_yaml(manifest_path)
     assert data["status"] == "COMPLETED"
-    assert data["result"] == "My Result"
+    assert "result" not in data  # Result moved to separate file
     assert "finished_at" in data
+    
+    # Check results file
+    results_path = tmp_path / "run_1" / "stryx.results.yaml"
+    assert results_path.exists()
+    res_data = read_yaml(results_path)
+    assert res_data["value"] == "My Result"
     
     # Check log file
     log_file = tmp_path / "run_1" / "stdout.log"
@@ -69,7 +75,7 @@ def test_run_context_lifecycle(tmp_path):
 
 def test_run_context_failure(tmp_path):
     """Test RunContext handles exceptions."""
-    manifest_path = tmp_path / "run_fail" / "manifest.yaml"
+    manifest_path = tmp_path / "run_fail" / "stryx.manifest.yaml"
     manifest_path.parent.mkdir()
     
     with pytest.raises(ValueError):
@@ -83,7 +89,7 @@ def test_run_context_failure(tmp_path):
 
 def test_run_context_non_zero_rank(tmp_path):
     """Test that non-zero ranks log to separate files and don't touch manifest."""
-    manifest_path = tmp_path / "run_dist" / "manifest.yaml"
+    manifest_path = tmp_path / "run_dist" / "stryx.manifest.yaml"
     manifest_path.parent.mkdir()
     
     # Simulate distributed env
@@ -123,7 +129,7 @@ def test_record_manifest_git_info(mock_run_cmd, mock_ctx):
     
     record_run_manifest(mock_ctx, cfg, "run_git", {"name": "src"}, [])
     
-    manifest = read_yaml(mock_ctx.runs_dir / "run_git" / "manifest.yaml")
+    manifest = read_yaml(mock_ctx.runs_dir / "run_git" / "stryx.manifest.yaml")
     
     assert manifest["git"]["sha"] == "abcdef123"
     assert manifest["git"]["dirty"] is True
@@ -144,6 +150,6 @@ def test_record_manifest_no_git(mock_run_cmd, mock_ctx):
     
     record_run_manifest(mock_ctx, cfg, "run_no_git", {}, [])
     
-    manifest = read_yaml(mock_ctx.runs_dir / "run_no_git" / "manifest.yaml")
+    manifest = read_yaml(mock_ctx.runs_dir / "run_no_git" / "stryx.manifest.yaml")
     assert manifest["git"]["sha"] is None
     assert "patch_file" not in manifest["git"]

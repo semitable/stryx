@@ -44,35 +44,39 @@ def test_list_runs(mock_ctx, capsys):
     """Test listing runs."""
     run1 = mock_ctx.obj.runs_dir / "run_1"
     run1.mkdir()
-    write_yaml(run1 / "manifest.yaml", {
+    write_yaml(run1 / "stryx.manifest.yaml", {
         "run_id": "run_1", 
         "status": "COMPLETED", 
         "created_at": "2023-01-01T12:00:00",
-        "result": {"accuracy": 0.95, "loss": 0.1}
     })
-    write_yaml(run1 / "config.yaml", {"value": 100})
+    write_yaml(run1 / "stryx.results.yaml", {"accuracy": 0.95, "loss": 0.1})
+    write_yaml(run1 / "stryx.config.yaml", {"value": 100})
     
     run2 = mock_ctx.obj.runs_dir / "run_2"
     run2.mkdir()
-    write_yaml(run2 / "manifest.yaml", {
+    write_yaml(run2 / "stryx.manifest.yaml", {
         "run_id": "run_2", 
         "status": "FAILED", 
         "created_at": "2023-01-02T12:00:00",
-        "result": None
     })
-    write_yaml(run2 / "config.yaml", {"value": 200})
+    write_yaml(run2 / "stryx.config.yaml", {"value": 200})
     
     run_list(mock_ctx)
     
     captured = capsys.readouterr()
+    # Check headers
+    assert "stryx.run_id" in captured.out
+    assert "stryx.status" in captured.out
+    assert "stryx.created_at" in captured.out
+    
     assert "run_1" in captured.out
     assert "COMPLETED" in captured.out
     assert "run_2" in captured.out
     assert "FAILED" in captured.out
-    assert "100" in captured.out
-    assert "200" in captured.out
-    # Check result columns
-    assert "ret.accuracy" in captured.out
+    assert "100" not in captured.out
+    assert "200" not in captured.out
+    # Check result columns (pandas flat output)
+    assert "accuracy" in captured.out
     assert "0.95" in captured.out
 
 def test_list_configs_resilience(mock_ctx, capsys):

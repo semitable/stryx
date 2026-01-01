@@ -10,7 +10,7 @@ def test_run_path_outside_context():
 
 def test_run_path_inside_context(tmp_path):
     """Accessing run_path inside a run should return the run dir."""
-    manifest = tmp_path / "run_1" / "manifest.yaml"
+    manifest = tmp_path / "run_1" / "stryx.manifest.yaml"
     manifest.parent.mkdir()
     
     with RunContext(manifest, rank=0):

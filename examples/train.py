@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Union
+from typing import Literal, Union, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -66,7 +66,7 @@ class Config(BaseModel):
     sched: SchedulerCfg | None = Field(default=None, discriminator="kind")
 
 
-def train(cfg: Config) -> None:
+def train(cfg: Config) -> dict[str, Any]:
     """Simulated training loop."""
 
     print(f"[{cfg.exp_name}] Starting training...")
@@ -82,11 +82,13 @@ def train(cfg: Config) -> None:
         if step % max(1, cfg.train.steps // 5) == 0:
             print(f"  step={step:04d} loss={loss:.6f}")
 
+    return {"accuracy": 0.8}
+
 
 @stryx.cli(schema=Config)
-def main(cfg: Config) -> None:
+def main(cfg: Config) -> dict[str, Any]:
     """Train a model with the given configuration."""
-    train(cfg)
+    return train(cfg)
 
 
 if __name__ == "__main__":
