@@ -447,13 +447,25 @@ def run_list(ctx: typer.Context) -> None:
             status = data.get("status", "UNKNOWN")
             created = data.get("created_at", "")[:16].replace("T", " ")
             
+            # Config
             config_path = p / "config.yaml"
             config = read_yaml(config_path) if config_path.exists() else {}
-            
             flat_cfg = flatten_config(config)
-            row = {"Run ID": run_id, "Status": status, "Created": created, **flat_cfg}
+
+            # Result
+            result = data.get("result")
+            flat_res = {}
+            if isinstance(result, dict):
+                # Flatten dictionary results with prefix
+                flat_res = flatten_config(result, prefix="ret")
+            elif result is not None:
+                # Handle scalar results
+                flat_res = {"ret": result}
+
+            row = {"Run ID": run_id, "Status": status, "Created": created, **flat_cfg, **flat_res}
             rows.append(row)
             all_keys.update(flat_cfg.keys())
+            all_keys.update(flat_res.keys())
         except Exception:
             continue
 
