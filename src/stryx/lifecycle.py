@@ -6,6 +6,7 @@ import platform
 import subprocess
 import sys
 import traceback
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO, TYPE_CHECKING
@@ -14,6 +15,24 @@ from .utils import read_yaml, write_yaml
 
 if TYPE_CHECKING:
     from .utils import Ctx
+
+_current_context: ContextVar[RunContext | None] = ContextVar("run_context", default=None)
+
+
+def current_run() -> RunContext | None:
+    """Get the active RunContext, or None if not running inside a stryx run."""
+    return _current_context.get()
+
+
+def resolve_run_path() -> Path:
+    """Get the active run directory. Raises RuntimeError if not in a run."""
+    ctx = current_run()
+    if ctx is None:
+        raise RuntimeError(
+            "stryx.run_path was accessed outside of an active experiment run.\n"
+            "Ensure your function is decorated with @stryx.cli and executed via the CLI."
+        )
+    return ctx.manifest_path.parent
 
 
 class TeeStream:
@@ -28,7 +47,9 @@ class TeeStream:
         self.file.write(data)
         self.file.flush()  # Ensure logs are written immediately
 
-    def flush(self, ) -> None:
+    def flush(
+        self,
+    ) -> None:
         self.original.flush()
         self.file.flush()
 
@@ -45,8 +66,11 @@ class RunContext:
         self.log_file: TextIO | None = None
         self.old_stdout: TextIO | None = None
         self.old_stderr: TextIO | None = None
+        self._token: Any = None
 
     def __enter__(self) -> RunContext:
+        self._token = _current_context.set(self)
+
         # Determine log path
         run_root = self.manifest_path.parent
         is_distributed = os.getenv("WORLD_SIZE") is not None
@@ -68,19 +92,21 @@ class RunContext:
         # Setup Tee
         self.old_stdout = sys.stdout
         self.old_stderr = sys.stderr
-        
+
         sys.stdout = TeeStream(self.old_stdout, self.log_file)  # type: ignore
         sys.stderr = TeeStream(self.old_stderr, self.log_file)  # type: ignore
 
         # Initial status (only rank 0)
         if self.rank == 0:
             self._update_manifest(
-                status="RUNNING",
-                started_at=datetime.now(tz=timezone.utc).isoformat()
+                status="RUNNING", started_at=datetime.now(tz=timezone.utc).isoformat()
             )
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._token:
+            _current_context.reset(self._token)
+
         # Restore streams
         if self.old_stdout:
             sys.stdout = self.old_stdout
@@ -102,7 +128,7 @@ class RunContext:
                 status="FAILED",
                 error=str(exc_val),
                 traceback=tb,
-                finished_at=datetime.now(tz=timezone.utc).isoformat()
+                finished_at=datetime.now(tz=timezone.utc).isoformat(),
             )
         else:
             # If successful exit
@@ -112,7 +138,7 @@ class RunContext:
         """Record the execution result and mark as COMPLETED."""
         if self.rank != 0:
             return
-            
+
         self._update_manifest(
             status="COMPLETED",
             result=result,
@@ -126,7 +152,7 @@ class RunContext:
                 data = read_yaml(self.manifest_path)
             else:
                 data = {}
-            
+
             data.update(kwargs)
             write_yaml(self.manifest_path, data)
         except Exception:
@@ -184,7 +210,7 @@ def record_run_manifest(
         write_yaml(manifest_path, manifest)
     except Exception as exc:
         print(f"Warning: failed to write run manifest: {exc}", file=sys.stderr)
-        
+
     return manifest_path
 
 
@@ -210,6 +236,7 @@ def _git_info() -> dict[str, Any]:
         dirty = bool(status)
     return {"sha": sha, "dirty": dirty}
 
+
 def _git_untracked_files() -> list[str]:
     if not _run_cmd(["git", "rev-parse", "--is-inside-work-tree"]):
         return []
@@ -217,6 +244,7 @@ def _git_untracked_files() -> list[str]:
     if not output:
         return []
     return [line for line in output.splitlines() if line.strip()]
+
 
 def _uv_lock_hash(lock_path: Path | None = None) -> str | None:
     path = lock_path or Path("uv.lock")
@@ -230,6 +258,7 @@ def _uv_lock_hash(lock_path: Path | None = None) -> str | None:
         return hasher.hexdigest()
     except OSError:
         return None
+
 
 def _write_git_patch(run_root: Path) -> Path | None:
     if not _run_cmd(["git", "rev-parse", "--is-inside-work-tree"]):
