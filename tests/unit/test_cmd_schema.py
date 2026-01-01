@@ -36,3 +36,5 @@ def test_schema_json(mock_ctx, capsys):
     data = json.loads(captured.out)
     assert data["title"] == "Config"
     assert "name" in data["properties"]
+    assert "__stryx__" in data["properties"]
+    assert data["properties"]["__stryx__"]["title"] == "Stryx Metadata"

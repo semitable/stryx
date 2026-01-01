@@ -284,7 +284,28 @@ def recipe_schema(
     """Print configuration schema."""
     c: Ctx = ctx.obj
     if json_out:
-        print(json.dumps(c.schema.model_json_schema(), indent=2))
+        schema = c.schema.model_json_schema()
+        # Inject __stryx__ metadata to allow validation of recipe files
+        if "properties" not in schema:
+            schema["properties"] = {}
+            
+        schema["properties"]["__stryx__"] = {
+            "title": "Stryx Metadata",
+            "description": "Metadata managed by Stryx",
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "title": "Type"},
+                "source": {"type": "string", "title": "Source"},
+                "overrides": {
+                    "type": "array", 
+                    "items": {"type": "string"},
+                    "title": "Overrides"
+                },
+                "description": {"type": "string", "title": "Description"},
+                "created_at": {"type": "string", "title": "Created At"}
+            }
+        }
+        print(json.dumps(schema, indent=2))
         return
 
     print(f"Schema: {c.schema.__module__}:{c.schema.__name__}")
