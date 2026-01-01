@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from stryx.config_builder import build_config
+from stryx.config import build_config
 
 class TrainConfig(BaseModel):
     steps: int = 100

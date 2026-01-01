@@ -8,7 +8,7 @@ import typer
 from filelock import FileLock
 import petname
 
-from stryx.config_builder import (
+from stryx.config import (
     apply_override,
     build_config,
     load_and_override,
