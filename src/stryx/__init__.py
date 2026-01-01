@@ -10,7 +10,7 @@ from .cli import cli
 from .schema import FieldInfo, SchemaIntrospector, extract_fields
 
 # TUI (for direct use)
-from .tui import PydanticConfigTUI, launch_tui
+from .tui import PydanticConfigTUI
 
 # Utilities
 from .utils import (
@@ -31,7 +31,6 @@ __all__ = [
     "SchemaIntrospector",
     "extract_fields",
     "PydanticConfigTUI",
-    "launch_tui",
     "FieldPath",
     "get_nested",
     "parse_smart",

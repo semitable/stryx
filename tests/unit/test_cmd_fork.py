@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import typer
 from pydantic import BaseModel, ConfigDict
 from stryx.commands import recipe_init, recipe_fork
-from stryx.utils import Ctx, read_yaml, write_yaml
+from stryx.utils import Ctx, read_yaml
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")

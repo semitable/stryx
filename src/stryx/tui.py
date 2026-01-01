@@ -537,18 +537,3 @@ class PydanticConfigTUI:
         self.app.run()
 
 
-def launch_tui(
-    schema: Type[BaseModel],
-    config_name: str,
-    config_dir: str = "config"
-) -> None:
-    """Launch the interactive TUI for editing a Pydantic config.
-
-    Args:
-        schema: Pydantic BaseModel class to use for validation
-        config_name: Name of the config file (without extension)
-        config_dir: Directory where config will be saved (default: "config")
-    """
-    config_path = Path(config_dir) / f"{config_name}.yaml"
-    tui = PydanticConfigTUI(schema, config_path)
-    tui.run()

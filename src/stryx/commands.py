@@ -1,5 +1,4 @@
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, List, Optional
@@ -14,17 +13,17 @@ from stryx.config import (
     load_and_override,
     read_config_file,
     validate_or_die,
+    save_recipe,
 )
 from stryx.lifecycle import RunContext, get_rank, record_run_manifest
 from stryx.run_id import derive_run_id
-from stryx.schema import FieldInfo, extract_fields
+from stryx.schema import extract_fields
 from stryx.utils import (
     Ctx,
     flatten_config,
     get_next_sequential_name,
     read_yaml,
     resolve_recipe_path,
-    save_recipe,
 )
 
 # ============================================================================
@@ -415,9 +414,11 @@ def run_list(ctx: typer.Context) -> None:
     all_keys = set()
 
     for p in c.runs_dir.iterdir():
-        if not p.is_dir(): continue
+        if not p.is_dir():
+            continue
         manifest_path = p / "manifest.yaml"
-        if not manifest_path.exists(): continue
+        if not manifest_path.exists():
+            continue
 
         try:
             data = read_yaml(manifest_path)
@@ -640,14 +641,18 @@ def _get_source(path, value, defaults, recipe, override_info):
     return "default"
 
 def _format_value(value: Any) -> str:
-    if value is None: return "null"
-    if isinstance(value, bool): return "true" if value else "false"
-    if isinstance(value, str): return f'"{value}"'
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return f'"{value}"'
     return str(value)
 
 def _format_field_lines(indent, label, type_name, default_str, description):
     line = f"{indent}{label}: {type_name}"
-    if default_str: line += f" = {default_str}"
+    if default_str:
+        line += f" = {default_str}"
     if description:
         padding = max(1, 42 - len(line)) if len(line) < 40 else 1
         return [f"{line}{' ' * padding}# {description}"]

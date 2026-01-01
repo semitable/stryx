@@ -18,31 +18,6 @@ from datetime import datetime, timezone
 logger = logging.getLogger("stryx.run_id")
 
 
-def parse_run_id_options(argv: list[str]) -> tuple[str | None, list[str]]:
-    """Extract run id options from argv and return (run_id, remaining_argv)."""
-    run_id_override: str | None = None
-    remaining: list[str] = []
-
-    i = 0
-    while i < len(argv):
-        arg = argv[i]
-        if arg == "--run-id":
-            if i + 1 >= len(argv):
-                raise SystemExit("--run-id requires a value")
-            run_id_override = argv[i + 1]
-            i += 2
-            continue
-        if arg.startswith("--run-id="):
-            run_id_override = arg.split("=", 1)[1]
-            i += 1
-            continue
-
-        remaining.append(arg)
-        i += 1
-
-    return run_id_override, remaining
-
-
 def derive_run_id(
     label: str | None = None,
     run_id_override: str | None = None,

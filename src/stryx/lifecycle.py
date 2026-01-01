@@ -69,8 +69,8 @@ class RunContext:
         self.old_stdout = sys.stdout
         self.old_stderr = sys.stderr
         
-        sys.stdout = TeeStream(self.old_stdout, self.log_file) # type: ignore
-        sys.stderr = TeeStream(self.old_stderr, self.log_file) # type: ignore
+        sys.stdout = TeeStream(self.old_stdout, self.log_file)  # type: ignore
+        sys.stderr = TeeStream(self.old_stderr, self.log_file)  # type: ignore
 
         # Initial status (only rank 0)
         if self.rank == 0:

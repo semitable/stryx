@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from .utils import FieldPath, read_yaml, write_yaml, get_nested, set_nested, set_dotpath, parse_smart
-from .schema import SchemaIntrospector, is_discriminated_union, unwrap_optional
+from .schema import SchemaIntrospector, is_discriminated_union, unwrap_optional, get_union_members
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -50,7 +51,6 @@ class ConfigManager:
         This properly handles discriminated unions by instantiating the first variant.
         """
         from pydantic_core import PydanticUndefined
-        from typing import get_args
 
         result = {}
 
@@ -61,8 +61,7 @@ class ConfigManager:
             # Handle discriminated unions first
             if is_discriminated_union(field_info):
                 # Get union members (excluding None)
-                members = get_args(field_type)
-                non_none_members = [m for m in members if m is not type(None)]
+                non_none_members = get_union_members(field_type)
 
                 if non_none_members:
                     first_variant = non_none_members[0]
@@ -248,3 +247,47 @@ def read_config_file(path: Path) -> Any:
         return read_yaml(path)
 
     raise SystemExit(f"Unsupported format: {suffix} (use .yaml or .json)")
+
+
+def save_recipe(
+    path: Path,
+    cfg_data: dict[str, Any],
+    schema_cls: type,
+    overrides: list[str],
+    kind: str = "canonical",  # "canonical" or "scratch"
+    source: str | None = None,
+    description: str | None = None,
+    force: bool = False,
+) -> None:
+    """Construct metadata and write recipe to file.
+
+    Args:
+        path: Destination path.
+        cfg_data: Dictionary dump of the configuration.
+        schema_cls: The schema class (for metadata).
+        overrides: List of overrides applied.
+        kind: Recipe type ("canonical" or "scratch").
+        source: Optional source lineage string.
+        description: Optional description.
+        force: If True, overwrite existing file.
+
+    Raises:
+        FileExistsError: If path exists and force is False.
+    """
+    if path.exists() and not force:
+        raise FileExistsError(f"Recipe '{path}' already exists.")
+
+    meta = {
+        "schema": f"{schema_cls.__module__}:{schema_cls.__name__}",
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        "type": kind,
+        "overrides": overrides,
+    }
+    if source:
+        meta["from"] = source
+    if description:
+        meta["description"] = description
+
+    payload = {"__stryx__": meta, **cfg_data}
+
+    write_yaml(path, payload)
